@@ -7,7 +7,6 @@
     "scheme": "yogai",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": false,
     "splash": {
       "backgroundColor": "#2D8B5E",
       "resizeMode": "contain"
