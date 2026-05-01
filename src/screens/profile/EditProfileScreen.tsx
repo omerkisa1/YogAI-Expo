@@ -69,8 +69,8 @@ const EditProfileScreen = ({ navigation }: Props) => {
       age: profileQuery.data.age,
       gender: profileQuery.data.gender,
       level: profileQuery.data.level,
-      goals: profileQuery.data.goals,
-      injuries: profileQuery.data.injuries,
+      goals: profileQuery.data.goals ?? [],
+      injuries: profileQuery.data.injuries ?? [],
       preferred_language: profileQuery.data.preferred_language,
     });
   }, [profileQuery.data, reset]);

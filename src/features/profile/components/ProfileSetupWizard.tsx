@@ -1,13 +1,15 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import PagerView from 'react-native-pager-view';
+import type { Profile } from '@/shared/types/profile';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { useUpdateProfile } from '../hooks/useProfile';
 import Button from '@/shared/components/Button';
 import Input from '@/shared/components/Input';
 import Touchable from '@/shared/components/Touchable';
-import type { Goal, Profile } from '@/shared/types/profile';
+
+import type { Goal } from '@/shared/types/profile';
 import type { AppLanguage, Injury, Level } from '@/shared/types/plan';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
@@ -35,10 +37,19 @@ const injuries: { key: Injury; label: string }[] = [
 
 const totalSteps = 5;
 
+const getInitialStep = (profile: Profile): number => {
+  if (!profile.level) return 0;
+  if (!profile.age) return 1;
+  if (!profile.goals || profile.goals.length === 0) return 2;
+  if (!profile.preferred_language) return 4;
+  return 0;
+};
+
 const ProfileSetupWizard = ({ profile, onCompleted }: ProfileSetupWizardProps) => {
   const updateProfileMutation = useUpdateProfile();
   const pagerRef = useRef<PagerView>(null);
-  const [currentStep, setCurrentStep] = useState(0);
+  const initialStep = useMemo(() => getInitialStep(profile), [profile]);
+  const [currentStep, setCurrentStep] = useState(initialStep);
   const [level, setLevel] = useState<Level>(profile.level ?? 'beginner');
   const [age, setAge] = useState(String(profile.age ?? ''));
   const [selectedGoals, setSelectedGoals] = useState<Goal[]>(profile.goals ?? []);
@@ -47,8 +58,6 @@ const ProfileSetupWizard = ({ profile, onCompleted }: ProfileSetupWizardProps) =
 
   const title = useMemo(() => `Profilinizi Tamamlayın ${currentStep + 1}/${totalSteps}`, [currentStep]);
 
-  const goNext = () => { if (currentStep < totalSteps - 1) pagerRef.current?.setPage(currentStep + 1); };
-  const goBack = () => { if (currentStep > 0) pagerRef.current?.setPage(currentStep - 1); };
   const toggleGoal = (goal: Goal) => { setSelectedGoals(prev => prev.includes(goal) ? prev.filter(i => i !== goal) : [...prev, goal]); };
   const toggleInjury = (injury: Injury) => { setSelectedInjuries(prev => prev.includes(injury) ? prev.filter(i => i !== injury) : [...prev, injury]); };
 
@@ -69,7 +78,7 @@ const ProfileSetupWizard = ({ profile, onCompleted }: ProfileSetupWizardProps) =
         ))}
       </View>
 
-      <PagerView ref={pagerRef} style={styles.pager} initialPage={0} onPageSelected={event => setCurrentStep(event.nativeEvent.position)}>
+      <PagerView ref={pagerRef} style={styles.pager} initialPage={initialStep} onPageSelected={event => setCurrentStep(event.nativeEvent.position)}>
         <View key="level" style={styles.page}>
           <Text style={styles.question}>Seviyenizi seçin</Text>
           <View style={styles.levelRow}>
@@ -130,14 +139,9 @@ const ProfileSetupWizard = ({ profile, onCompleted }: ProfileSetupWizardProps) =
         </View>
       </PagerView>
 
-      <View style={styles.actionsRow}>
-        {currentStep > 0 ? <Button title="Geri" onPress={goBack} variant="ghost" size="md" fullWidth accessibilityLabel="Geri" /> : <View style={styles.ghostSpacer} />}
-        {currentStep === totalSteps - 1 ? (
-          <Button title="Tamamla" onPress={() => { void completeWizard(); }} variant="primary" size="md" fullWidth loading={updateProfileMutation.isPending} disabled={updateProfileMutation.isPending} accessibilityLabel="Profili tamamla" />
-        ) : (
-          <Button title="Sonraki" onPress={goNext} variant="primary" size="md" fullWidth icon="arrow-right" iconPosition="right" />
-        )}
-      </View>
+      {currentStep === totalSteps - 1 && (
+        <Button title="Tamamla" onPress={() => { void completeWizard(); }} variant="primary" size="lg" fullWidth loading={updateProfileMutation.isPending} disabled={updateProfileMutation.isPending} accessibilityLabel="Profili tamamla" />
+      )}
     </View>
   );
 };
@@ -169,8 +173,6 @@ const styles = StyleSheet.create({
   noInjuryButton: { alignSelf: 'flex-start', paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
   noInjuryText: { ...typography.caption, color: colors.warningDark },
   languageRow: { flexDirection: 'row', gap: spacing.sm },
-  actionsRow: { flexDirection: 'row', gap: spacing.sm },
-  ghostSpacer: { flex: 1 },
 });
 
 export default ProfileSetupWizard;
