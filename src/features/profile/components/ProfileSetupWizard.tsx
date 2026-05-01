@@ -8,7 +8,6 @@ import { useUpdateProfile } from '../hooks/useProfile';
 import Button from '@/shared/components/Button';
 import Input from '@/shared/components/Input';
 import Touchable from '@/shared/components/Touchable';
-
 import type { Goal } from '@/shared/types/profile';
 import type { AppLanguage, Injury, Level } from '@/shared/types/plan';
 import { colors } from '@/theme/colors';
@@ -37,11 +36,11 @@ const injuries: { key: Injury; label: string }[] = [
 
 const totalSteps = 5;
 
-const getInitialStep = (profile: Profile): number => {
-  if (!profile.level) return 0;
-  if (!profile.age) return 1;
-  if (!profile.goals || profile.goals.length === 0) return 2;
-  if (!profile.preferred_language) return 4;
+const getInitialStep = (p: Profile): number => {
+  if (!p.level) return 0;
+  if (!p.age) return 1;
+  if (!p.goals || p.goals.length === 0) return 2;
+  if (!p.preferred_language) return 4;
   return 0;
 };
 

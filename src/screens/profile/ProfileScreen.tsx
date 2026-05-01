@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import ProfileSetupWizard from '@/features/profile/components/ProfileSetupWizard';
 import { useProfile } from '@/features/profile/hooks/useProfile';
 import AppModal from '@/shared/components/AppModal';
 import Card from '@/shared/components/Card';
@@ -62,6 +63,7 @@ const ProfileScreen = () => {
   const completionChecks = [Boolean(displayName?.trim()), Boolean(email && email !== 'email bulunamadı'), levelLabel !== '-', ageLabel !== '-', languageLabel !== '-', goalsLabel !== '-' || injuriesLabel !== '-'];
   const completedCount = completionChecks.filter(Boolean).length;
   const completionPercent = Math.round((completedCount / completionChecks.length) * 100);
+  const shouldShowWizard = completedCount < completionChecks.length;
 
   const menuItems = [
     { key: 'edit-profile', label: 'Profili Düzenle', icon: 'account-edit-outline', backgroundColor: colors.primary, onPress: () => navigation.navigate('EditProfile') },
@@ -88,29 +90,33 @@ const ProfileScreen = () => {
           <Text style={styles.email}>{email}</Text>
         </View>
 
-        <Card variant="elevated" style={styles.infoCard}>
-          <View style={styles.infoLine}><Text style={styles.infoKey}>Seviye</Text><View style={styles.levelChip}><Text style={styles.levelChipText}>{levelLabel}</Text></View></View>
-          <View style={styles.infoLine}><Text style={styles.infoKey}>Yaş</Text><Text style={styles.infoValue}>{ageLabel}</Text></View>
-          <View style={styles.infoLine}><Text style={styles.infoKey}>Dil</Text><Text style={styles.infoValue}>{languageLabel}</Text></View>
-          <View style={styles.infoLineTop}><Text style={styles.infoKey}>Hedefler</Text><Text style={styles.infoValue}>{goalsLabel}</Text></View>
-          <View style={styles.infoLineTop}>
-            <Text style={styles.infoKey}>Sakatlıklar</Text>
-            {injuriesLabel === '-' ? <Text style={styles.infoValueMuted}>-</Text> : <View style={styles.warningChip}><Text style={styles.warningChipText}>{injuriesLabel}</Text></View>}
-          </View>
-          <View style={styles.completionBlock}>
-            <View style={styles.completionHeaderRow}>
-              <Text style={styles.completionTitle}>Profil Tamamlanma</Text>
-              <View style={styles.completionBadge}>
-                <Text style={styles.completionBadgeText}>{completedCount}/{completionChecks.length}</Text>
-                <MaterialCommunityIcons name="check" size={12} color={colors.success} />
-              </View>
+        {shouldShowWizard ? (
+          <ProfileSetupWizard profile={profile} />
+        ) : (
+          <Card variant="elevated" style={styles.infoCard}>
+            <View style={styles.infoLine}><Text style={styles.infoKey}>Seviye</Text><View style={styles.levelChip}><Text style={styles.levelChipText}>{levelLabel}</Text></View></View>
+            <View style={styles.infoLine}><Text style={styles.infoKey}>Yaş</Text><Text style={styles.infoValue}>{ageLabel}</Text></View>
+            <View style={styles.infoLine}><Text style={styles.infoKey}>Dil</Text><Text style={styles.infoValue}>{languageLabel}</Text></View>
+            <View style={styles.infoLineTop}><Text style={styles.infoKey}>Hedefler</Text><Text style={styles.infoValue}>{goalsLabel}</Text></View>
+            <View style={styles.infoLineTop}>
+              <Text style={styles.infoKey}>Sakatlıklar</Text>
+              {injuriesLabel === '-' ? <Text style={styles.infoValueMuted}>-</Text> : <View style={styles.warningChip}><Text style={styles.warningChipText}>{injuriesLabel}</Text></View>}
             </View>
-            <ProgressBar progress={completionPercent} color={colors.primary} height={4} />
-          </View>
-          <Touchable onPress={() => navigation.navigate('EditProfile')} borderRadius={radius.md} accessibilityRole="button" accessibilityLabel="Profili düzenle">
-            <Text style={styles.editLink}>Profili Düzenle</Text>
-          </Touchable>
-        </Card>
+            <View style={styles.completionBlock}>
+              <View style={styles.completionHeaderRow}>
+                <Text style={styles.completionTitle}>Profil Tamamlanma</Text>
+                <View style={styles.completionBadge}>
+                  <Text style={styles.completionBadgeText}>{completedCount}/{completionChecks.length}</Text>
+                  <MaterialCommunityIcons name="check" size={12} color={colors.success} />
+                </View>
+              </View>
+              <ProgressBar progress={completionPercent} color={colors.primary} height={4} />
+            </View>
+            <Touchable onPress={() => navigation.navigate('EditProfile')} borderRadius={radius.md} accessibilityRole="button" accessibilityLabel="Profili düzenle">
+              <Text style={styles.editLink}>Profili Düzenle</Text>
+            </Touchable>
+          </Card>
+        )}
 
         <Card variant="default" style={styles.actionsCard}>
           {menuItems.map((item, index) => (
