@@ -65,7 +65,13 @@ const App = () => {
   const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
+    let previousUID: string | null = null;
     const unsubscribeAuth = authService.onAuthStateChanged(async user => {
+      const currentUID = user?.uid ?? null;
+      if (previousUID !== null && previousUID !== currentUID) {
+        queryClient.clear();
+      }
+      previousUID = currentUID;
       const provider = user ? authService.getAuthProvider() : 'unknown';
       setUser(user, provider);
       try { await SplashScreen.hideAsync(); } catch { /* ignored */ }
