@@ -43,36 +43,72 @@ export const POSE_LANDMARK_KEYS = [
 export type PoseLandmarkKey = (typeof POSE_LANDMARK_KEYS)[number];
 
 /**
- * Returns the image-space width/height that ML Kit uses for its coordinate output.
- *
- * ML Kit interprets the buffer *after* applying orientation, so when the raw
- * buffer is landscape (e.g. sensor) but the orientation flag says "portrait",
- * the coordinate system is effectively rotated – meaning we must swap W/H for
- * normalization.
- *
- * `frame.width` and `frame.height` are always the **raw buffer** dimensions
- * (typically landscape for most iOS sensors).
+ * Vision Camera frame pixel size (`frame.width` × `frame.height`). Raw landmark x/y from
+ * ML Kit match this buffer — compare diagnostics using these, not swapped extents.
  */
-function getMlImageExtent(
+export function getMlNormalizationExtent(
   frameWidth: number,
   frameHeight: number,
-  orientation: Orientation,
+  _orientation: Orientation,
 ): { normW: number; normH: number } {
-  'worklet';
-  const needsSwap =
-    orientation === 'landscape-left' || orientation === 'landscape-right';
-  return needsSwap
-    ? { normW: frameHeight, normH: frameWidth }
-    : { normW: frameWidth, normH: frameHeight };
+  const w = frameWidth > 0 ? frameWidth : 1;
+  const h = frameHeight > 0 ? frameHeight : 1;
+  return { normW: w, normH: h };
 }
 
 /**
- * Maps detector output to normalized 0–1 landmarks (analyzer + overlay base coords).
+ * Logical preview aspect for `resizeMode` math: upright video on screen swaps W/H when
+ * the sensor buffer is landscape while the UI is portrait.
+ */
+export function getPreviewContentExtent(
+  frameWidth: number,
+  frameHeight: number,
+  orientation: Orientation,
+): { contentW: number; contentH: number } {
+  const w = frameWidth > 0 ? frameWidth : 1;
+  const h = frameHeight > 0 ? frameHeight : 1;
+  if (orientation === 'landscape-left' || orientation === 'landscape-right') {
+    return { contentW: h, contentH: w };
+  }
+  return { contentW: w, contentH: h };
+}
+
+/** Map buffer-normalized coords to preview-upright normalized coords (matches rotated `<Camera />`). */
+function bufferNormToViewNorm(
+  nx: number,
+  ny: number,
+  orientation: Orientation,
+): { nx: number; ny: number } {
+  'worklet';
+  switch (orientation) {
+    case 'landscape-right':
+      return { nx: ny, ny: 1 - nx };
+    case 'landscape-left':
+      return { nx: 1 - ny, ny: nx };
+    case 'portrait-upside-down':
+      return { nx: 1 - nx, ny: 1 - ny };
+    default:
+      return { nx, ny };
+  }
+}
+
+function getMlImageExtent(
+  frameWidth: number,
+  frameHeight: number,
+  _orientation: Orientation,
+): { normW: number; normH: number } {
+  'worklet';
+  const w = frameWidth > 0 ? frameWidth : 1;
+  const h = frameHeight > 0 ? frameHeight : 1;
+  return { normW: w, normH: h };
+}
+
+/**
+ * Maps detector output to normalized landmarks for analyzer + overlay.
  *
- * - `orientation` determines whether W/H must be swapped for normalization.
- * - `flipXForAnalysis` (default false) flips X so that analyzer sees anatomically-
- *   correct coordinates even on the selfie camera. The visual mirror effect is
- *   handled separately in `SkeletonOverlay`.
+ * - Divide by **buffer** `frame.width` / `frame.height` (ML Kit returns buffer pixels).
+ * - Rotate to **preview-upright** space so x/y match `resizeMode="cover"` + mirror overlay.
+ * - `flipXForAnalysis`: optional extra flip for anatomical left/right (usually off; overlay mirrors).
  */
 export function landmarksFromDetector(
   raw: Landmarks,
@@ -89,7 +125,10 @@ export function landmarksFromDetector(
   return POSE_LANDMARK_KEYS.map((key, index) => {
     const lm = raw[key];
     let nx = lm.x / w;
-    const ny = lm.y / h;
+    let ny = lm.y / h;
+    const rv = bufferNormToViewNorm(nx, ny, orientation);
+    nx = rv.nx;
+    ny = rv.ny;
     if (flipXForAnalysis) {
       nx = 1 - nx;
     }
@@ -126,4 +165,27 @@ export function rawLandmarkBounds(raw: Landmarks): {
     if (lm.y > maxY) maxY = lm.y;
   }
   return { minX, maxX, minY, maxY };
+}
+
+/** İyi görünürlükteki noktalar — düşük güvenli kalça/outlier maxX şişirmesini logda gizler. */
+export function rawLandmarkBoundsVisible(
+  raw: Landmarks,
+  minConfidence: number,
+): { minX: number; maxX: number; minY: number; maxY: number } | null {
+  'worklet';
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity;
+  let any = false;
+  for (const key of POSE_LANDMARK_KEYS) {
+    const lm = raw[key];
+    if (lm.confidence < minConfidence) continue;
+    any = true;
+    if (lm.x < minX) minX = lm.x;
+    if (lm.x > maxX) maxX = lm.x;
+    if (lm.y < minY) minY = lm.y;
+    if (lm.y > maxY) maxY = lm.y;
+  }
+  return any ? { minX, maxX, minY, maxY } : null;
 }

@@ -33,22 +33,30 @@ import api from '@/shared/api/axiosInstance';
 import Button from '@/shared/components/Button';
 import {
   SkeletonOverlay,
+  computeContainFitTransform,
   computeCoverCropTransform,
-  type CoverCropTransform,
 } from '@/shared/components/SkeletonOverlay';
 import type { RootStackParamList } from '@/navigation/types';
 import {
   analyzePoseClientSide,
+  RULE_TRIANGLE_VISIBILITY,
   type AnalyzeResult,
   type LandmarkPoint,
   parseLandmarkRules,
   type LandmarkRule,
 } from '@/lib/poseAnalyzer';
+import { getFallbackRulesForPose } from '@/lib/fallbackPoseRules';
 import {
+  getPreviewContentExtent,
   landmarksFromDetector,
   rawLandmarkBounds,
+  rawLandmarkBoundsVisible,
   POSE_LANDMARK_KEYS,
 } from '@/lib/poseLandmarks';
+import {
+  logPoseDiagnostics,
+  type VisionPoseBundle,
+} from '@/lib/poseDiagnosticsLog';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
@@ -87,7 +95,12 @@ type ScreenState = 'pose_selection' | 'active' | 'completed';
 const POSE_DURATION = 30;
 const ANALYZE_THROTTLE_MS = 150;
 const ML_TARGET_FPS = 10;
-const VISIBILITY_DEBUG_THRESHOLD = 0.65;
+const VISIBILITY_DEBUG_THRESHOLD = RULE_TRIANGLE_VISIBILITY;
+
+/** Metro’da `[YogAI.Pose]` ile filtrele. Release + fiziksel cihaz: `.env` içine `EXPO_PUBLIC_POSE_VERBOSE_LOG=1` */
+const ENABLE_POSE_CONSOLE_LOG =
+  __DEV__ || process.env.EXPO_PUBLIC_POSE_VERBOSE_LOG === '1';
+const POSE_LOG_INTERVAL_MS = 600;
 
 const formatTime = (seconds: number): string => {
   const m = Math.floor(seconds / 60);
@@ -158,6 +171,15 @@ const CameraTestScreen = ({ navigation }: Props) => {
   const lastResultRef = useRef<AnalyzeResult | null>(null);
   const fpsCountRef = useRef(0);
   const fpsLastTickRef = useRef(Date.now());
+  const fpsDisplayRef = useRef(0);
+  const lastPoseLogAtRef = useRef(0);
+
+  const overlayLayoutRef = useRef({ w: 0, h: 0 });
+  const selectedPoseIdRef = useRef<string | null>(null);
+  const formatVideoRef = useRef<{ vw: number; vh: number } | null>(null);
+  const devResizeModeRef = useRef<'cover' | 'contain'>('cover');
+  const rulesOriginRef = useRef<'api' | 'fallback' | 'none'>('none');
+  const fallbackRulesWarnedRef = useRef<Set<string>>(new Set());
 
   const posesQuery = useQuery<AnalyzablePoseMeta[]>({
     queryKey: ['analyzable-poses'],
@@ -179,10 +201,48 @@ const CameraTestScreen = ({ navigation }: Props) => {
   const selectedPose = poseDetailQuery.data;
 
   useEffect(() => {
-    rulesRef.current = parseLandmarkRules(
+    const parsed = parseLandmarkRules(
       selectedPose?.landmark_rules ?? selectedPose?.landmarkRules,
     );
-  }, [selectedPose?.landmark_rules, selectedPose?.landmarkRules]);
+
+    let rules = parsed;
+    let origin: 'api' | 'fallback' | 'none' = 'none';
+
+    if (parsed.length > 0) {
+      origin = 'api';
+    } else if (selectedPoseId) {
+      const fb = getFallbackRulesForPose(selectedPoseId);
+      if (fb.length > 0) {
+        rules = fb;
+        origin = 'fallback';
+        if (
+          __DEV__ &&
+          !fallbackRulesWarnedRef.current.has(selectedPoseId)
+        ) {
+          fallbackRulesWarnedRef.current.add(selectedPoseId);
+          console.warn(
+            `[YogAI.Pose] landmark_rules API'de yok — "${selectedPoseId}" için yerel test kuralları kullanılıyor.`,
+          );
+        }
+      }
+    }
+
+    rulesRef.current = rules;
+    rulesOriginRef.current = origin;
+  }, [
+    selectedPose?.landmark_rules,
+    selectedPose?.landmarkRules,
+    selectedPoseId,
+    selectedPose,
+  ]);
+
+  useEffect(() => {
+    selectedPoseIdRef.current = selectedPoseId;
+  }, [selectedPoseId]);
+
+  useEffect(() => {
+    devResizeModeRef.current = devResizeMode;
+  }, [devResizeMode]);
 
   const device = useCameraDevice('front');
   const screen = Dimensions.get('window');
@@ -190,6 +250,15 @@ const CameraTestScreen = ({ navigation }: Props) => {
     { fps: 30 },
     { videoAspectRatio: screen.height / screen.width },
   ]);
+
+  useEffect(() => {
+    if (format) {
+      formatVideoRef.current = {
+        vw: format.videoWidth,
+        vh: format.videoHeight,
+      };
+    }
+  }, [format]);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -223,42 +292,105 @@ const CameraTestScreen = ({ navigation }: Props) => {
     return () => stopTimer();
   }, [stopTimer]);
 
-  const onFrameInfoFromWorklet = useRunOnJS(
-    (info: {
-      w: number;
-      h: number;
-      orientation: Orientation;
-      isMirrored: boolean;
-      rawBounds: { minX: number; maxX: number; minY: number; maxY: number } | null;
-    }) => {
-      setFrameInfo(info);
-    },
-    [],
-  );
+  const coverCropTransform = useMemo(() => {
+    if (devResizeMode !== 'cover' || !frameInfo || overlaySize.width <= 0) {
+      return undefined;
+    }
+    const { contentW, contentH } = getPreviewContentExtent(
+      frameInfo.w,
+      frameInfo.h,
+      frameInfo.orientation,
+    );
+    return computeCoverCropTransform(
+      overlaySize.width,
+      overlaySize.height,
+      contentW,
+      contentH,
+    );
+  }, [
+    devResizeMode,
+    frameInfo?.w,
+    frameInfo?.h,
+    frameInfo?.orientation,
+    overlaySize.width,
+    overlaySize.height,
+  ]);
 
-  const onPoseFromWorklet = useRunOnJS((points: LandmarkPoint[]) => {
-    setLandmarks(points);
+  const containFitTransform = useMemo(() => {
+    if (devResizeMode !== 'contain' || !frameInfo || overlaySize.width <= 0) {
+      return undefined;
+    }
+    const { contentW, contentH } = getPreviewContentExtent(
+      frameInfo.w,
+      frameInfo.h,
+      frameInfo.orientation,
+    );
+    return computeContainFitTransform(
+      overlaySize.width,
+      overlaySize.height,
+      contentW,
+      contentH,
+    );
+  }, [
+    devResizeMode,
+    frameInfo?.w,
+    frameInfo?.h,
+    frameInfo?.orientation,
+    overlaySize.width,
+    overlaySize.height,
+  ]);
+
+  const onVisionPoseBundle = useRunOnJS((bundle: VisionPoseBundle) => {
+    setLandmarks(bundle.points);
+    setFrameInfo({
+      w: bundle.frameW,
+      h: bundle.frameH,
+      orientation: bundle.orientation,
+      isMirrored: bundle.isMirrored,
+      rawBounds: bundle.rawBounds,
+    });
 
     const now = Date.now();
     fpsCountRef.current += 1;
     if (now - fpsLastTickRef.current >= 1000) {
+      fpsDisplayRef.current = fpsCountRef.current;
       setFps(fpsCountRef.current);
       fpsCountRef.current = 0;
       fpsLastTickRef.current = now;
     }
 
     const rules = rulesRef.current;
-    if (points.length === 0 || rules.length === 0) {
+    let analyzeJustComputed: AnalyzeResult | null = null;
+
+    if (bundle.points.length === 0 || rules.length === 0) {
       setAnalyzeResult(null);
       lastResultRef.current = null;
-      return;
+    } else if (now - lastAnalyzeAtRef.current >= ANALYZE_THROTTLE_MS) {
+      lastAnalyzeAtRef.current = now;
+      analyzeJustComputed = analyzePoseClientSide(rules, bundle.points);
+      lastResultRef.current = analyzeJustComputed;
+      setAnalyzeResult(analyzeJustComputed);
     }
 
-    if (now - lastAnalyzeAtRef.current >= ANALYZE_THROTTLE_MS) {
-      lastAnalyzeAtRef.current = now;
-      const result = analyzePoseClientSide(rules, points);
-      lastResultRef.current = result;
-      setAnalyzeResult(result);
+    if (
+      ENABLE_POSE_CONSOLE_LOG &&
+      now - lastPoseLogAtRef.current >= POSE_LOG_INTERVAL_MS
+    ) {
+      lastPoseLogAtRef.current = now;
+      const fv = formatVideoRef.current;
+      logPoseDiagnostics({
+        bundle,
+        overlayW: overlayLayoutRef.current.w,
+        overlayH: overlayLayoutRef.current.h,
+        resizeMode: devResizeModeRef.current,
+        poseId: selectedPoseIdRef.current,
+        rulesCount: rules.length,
+        rulesOrigin: rulesOriginRef.current,
+        formatVideoW: fv?.vw ?? null,
+        formatVideoH: fv?.vh ?? null,
+        analyze: analyzeJustComputed ?? lastResultRef.current,
+        fps: fpsDisplayRef.current,
+      });
     }
   }, []);
 
@@ -269,24 +401,19 @@ const CameraTestScreen = ({ navigation }: Props) => {
         'worklet';
         const pose = detectPose(frame);
         if (pose == null) {
-          onPoseFromWorklet([]);
-          onFrameInfoFromWorklet({
-            w: frame.width,
-            h: frame.height,
+          onVisionPoseBundle({
+            points: [],
+            frameW: frame.width,
+            frameH: frame.height,
             orientation: frame.orientation,
             isMirrored: frame.isMirrored,
             rawBounds: null,
+            rawBoundsVisible: null,
           });
           return;
         }
         const bounds = rawLandmarkBounds(pose);
-        onFrameInfoFromWorklet({
-          w: frame.width,
-          h: frame.height,
-          orientation: frame.orientation,
-          isMirrored: frame.isMirrored,
-          rawBounds: bounds,
-        });
+        const boundsVisible = rawLandmarkBoundsVisible(pose, 0.5);
         const mapped = landmarksFromDetector(
           pose,
           frame.width,
@@ -294,10 +421,18 @@ const CameraTestScreen = ({ navigation }: Props) => {
           frame.orientation,
           /* flipXForAnalysis */ false,
         );
-        onPoseFromWorklet(mapped);
+        onVisionPoseBundle({
+          points: mapped,
+          frameW: frame.width,
+          frameH: frame.height,
+          orientation: frame.orientation,
+          isMirrored: frame.isMirrored,
+          rawBounds: bounds,
+          rawBoundsVisible: boundsVisible,
+        });
       });
     },
-    [onPoseFromWorklet, onFrameInfoFromWorklet],
+    [onVisionPoseBundle],
   );
 
   const isAnalyzing = screenState === 'active';
@@ -332,6 +467,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
 
   const onCameraLayout = (e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
+    overlayLayoutRef.current = { w: width, h: height };
     setOverlaySize({ width, height });
   };
 
@@ -469,16 +605,8 @@ const CameraTestScreen = ({ navigation }: Props) => {
             mirror
             width={overlaySize.width}
             height={overlaySize.height}
-            cropTransform={
-              devResizeMode === 'cover' && frameInfo
-                ? computeCoverCropTransform(
-                    overlaySize.width,
-                    overlaySize.height,
-                    frameInfo.w,
-                    frameInfo.h,
-                  )
-                : undefined
-            }
+            cropTransform={coverCropTransform}
+            containFit={containFitTransform}
           />
         )}
 
