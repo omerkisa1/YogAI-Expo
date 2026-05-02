@@ -5,11 +5,29 @@ import type { LandmarkPoint } from '@/lib/poseAnalyzer';
 import { VISIBILITY_THRESHOLD } from '@/lib/poseAnalyzer';
 import { colors } from '@/theme/colors';
 
+/**
+ * Transform applied when the Camera preview uses `resizeMode="cover"`.
+ *
+ * Because `cover` crops and scales the preview to fill the view, the normalised
+ * [0,1] landmark coordinates need the same crop+scale to line up.
+ *
+ * - `scale`  : how much the visible crop is scaled up (always ≥ 1 for cover)
+ * - `offsetX`: horizontal px offset of the visible area origin
+ * - `offsetY`: vertical px offset of the visible area origin
+ */
+export interface CoverCropTransform {
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+}
+
 export interface SkeletonOverlayProps {
   landmarks: LandmarkPoint[];
   mirror?: boolean;
   width: number;
   height: number;
+  /** Optional crop transform for cover mode alignment. */
+  cropTransform?: CoverCropTransform;
 }
 
 const POSE_CONNECTIONS: [number, number][] = [
@@ -44,15 +62,77 @@ const IMPORTANT = new Set([
   11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28,
 ]);
 
+/**
+ * Compute the cover-crop transform so overlay landmarks align with the Camera preview.
+ *
+ * @param viewWidth   Width of the overlay / Camera view (px)
+ * @param viewHeight  Height of the overlay / Camera view (px)
+ * @param frameWidth  Raw frame width from frame processor (px)
+ * @param frameHeight Raw frame height from frame processor (px)
+ * @returns CoverCropTransform to pass to SkeletonOverlay
+ */
+export function computeCoverCropTransform(
+  viewWidth: number,
+  viewHeight: number,
+  frameWidth: number,
+  frameHeight: number,
+): CoverCropTransform {
+  if (
+    viewWidth <= 0 ||
+    viewHeight <= 0 ||
+    frameWidth <= 0 ||
+    frameHeight <= 0
+  ) {
+    return { scale: 1, offsetX: 0, offsetY: 0 };
+  }
+
+  const viewAspect = viewWidth / viewHeight;
+  const frameAspect = frameWidth / frameHeight;
+
+  // Cover: the larger axis overflows; the visible area is the smaller fitting.
+  let scale: number;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  if (frameAspect > viewAspect) {
+    // Frame is wider → height fits, width is cropped
+    scale = viewHeight / frameHeight;
+    const scaledWidth = frameWidth * scale;
+    offsetX = (scaledWidth - viewWidth) / 2;
+  } else {
+    // Frame is taller → width fits, height is cropped
+    scale = viewWidth / frameWidth;
+    const scaledHeight = frameHeight * scale;
+    offsetY = (scaledHeight - viewHeight) / 2;
+  }
+
+  return { scale, offsetX, offsetY };
+}
+
 export function SkeletonOverlay({
   landmarks,
   mirror = false,
   width,
   height,
+  cropTransform,
 }: SkeletonOverlayProps) {
   const getPosition = (lm: LandmarkPoint) => {
-    const x = mirror ? (1 - lm.x) * width : lm.x * width;
-    const y = lm.y * height;
+    let x = mirror ? (1 - lm.x) * width : lm.x * width;
+    let y = lm.y * height;
+
+    if (cropTransform) {
+      // Scale the normalised coord into full-frame pixel space, then remove crop offset
+      const ct = cropTransform;
+      // `lm.x * width` already maps [0,1] → view px, but cover zooms/offsets
+      // Correct approach: map [0,1] → full scaled frame, then subtract offset
+      const fullW = width + 2 * ct.offsetX;
+      const fullH = height + 2 * ct.offsetY;
+      const rawX = mirror ? (1 - lm.x) * fullW : lm.x * fullW;
+      const rawY = lm.y * fullH;
+      x = rawX - ct.offsetX;
+      y = rawY - ct.offsetY;
+    }
+
     return { x, y };
   };
 

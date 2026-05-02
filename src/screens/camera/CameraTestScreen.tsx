@@ -22,6 +22,7 @@ import {
   useCameraPermission,
   useFrameProcessor,
 } from 'react-native-vision-camera';
+import type { Orientation } from 'react-native-vision-camera';
 import { useRunOnJS } from 'react-native-worklets-core';
 import { detectPose } from 'vision-camera-pose-detector';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -30,7 +31,11 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import api from '@/shared/api/axiosInstance';
 import Button from '@/shared/components/Button';
-import { SkeletonOverlay } from '@/shared/components/SkeletonOverlay';
+import {
+  SkeletonOverlay,
+  computeCoverCropTransform,
+  type CoverCropTransform,
+} from '@/shared/components/SkeletonOverlay';
 import type { RootStackParamList } from '@/navigation/types';
 import {
   analyzePoseClientSide,
@@ -39,7 +44,11 @@ import {
   parseLandmarkRules,
   type LandmarkRule,
 } from '@/lib/poseAnalyzer';
-import { landmarksFromDetector, POSE_LANDMARK_KEYS } from '@/lib/poseLandmarks';
+import {
+  landmarksFromDetector,
+  rawLandmarkBounds,
+  POSE_LANDMARK_KEYS,
+} from '@/lib/poseLandmarks';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
@@ -132,6 +141,18 @@ const CameraTestScreen = ({ navigation }: Props) => {
   const [showDevDebug, setShowDevDebug] = useState(false);
   const [completedAccuracy, setCompletedAccuracy] = useState<number | null>(null);
 
+  /** DEV: frame metadata for diagnostics */
+  const [frameInfo, setFrameInfo] = useState<{
+    w: number;
+    h: number;
+    orientation: Orientation;
+    isMirrored: boolean;
+    rawBounds: { minX: number; maxX: number; minY: number; maxY: number } | null;
+  } | null>(null);
+
+  /** DEV: toggle between cover / contain for quick visual testing */
+  const [devResizeMode, setDevResizeMode] = useState<'cover' | 'contain'>('cover');
+
   const rulesRef = useRef<LandmarkRule[]>([]);
   const lastAnalyzeAtRef = useRef(0);
   const lastResultRef = useRef<AnalyzeResult | null>(null);
@@ -202,6 +223,19 @@ const CameraTestScreen = ({ navigation }: Props) => {
     return () => stopTimer();
   }, [stopTimer]);
 
+  const onFrameInfoFromWorklet = useRunOnJS(
+    (info: {
+      w: number;
+      h: number;
+      orientation: Orientation;
+      isMirrored: boolean;
+      rawBounds: { minX: number; maxX: number; minY: number; maxY: number } | null;
+    }) => {
+      setFrameInfo(info);
+    },
+    [],
+  );
+
   const onPoseFromWorklet = useRunOnJS((points: LandmarkPoint[]) => {
     setLandmarks(points);
 
@@ -236,13 +270,34 @@ const CameraTestScreen = ({ navigation }: Props) => {
         const pose = detectPose(frame);
         if (pose == null) {
           onPoseFromWorklet([]);
+          onFrameInfoFromWorklet({
+            w: frame.width,
+            h: frame.height,
+            orientation: frame.orientation,
+            isMirrored: frame.isMirrored,
+            rawBounds: null,
+          });
           return;
         }
-        const mapped = landmarksFromDetector(pose, frame.width, frame.height);
+        const bounds = rawLandmarkBounds(pose);
+        onFrameInfoFromWorklet({
+          w: frame.width,
+          h: frame.height,
+          orientation: frame.orientation,
+          isMirrored: frame.isMirrored,
+          rawBounds: bounds,
+        });
+        const mapped = landmarksFromDetector(
+          pose,
+          frame.width,
+          frame.height,
+          frame.orientation,
+          /* flipXForAnalysis */ false,
+        );
         onPoseFromWorklet(mapped);
       });
     },
-    [onPoseFromWorklet],
+    [onPoseFromWorklet, onFrameInfoFromWorklet],
   );
 
   const isAnalyzing = screenState === 'active';
@@ -405,6 +460,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
           pixelFormat="yuv"
           videoStabilizationMode="off"
           outputOrientation="device"
+          resizeMode={devResizeMode}
         />
 
         {landmarks.length > 0 && overlaySize.width > 0 && (
@@ -413,6 +469,16 @@ const CameraTestScreen = ({ navigation }: Props) => {
             mirror
             width={overlaySize.width}
             height={overlaySize.height}
+            cropTransform={
+              devResizeMode === 'cover' && frameInfo
+                ? computeCoverCropTransform(
+                    overlaySize.width,
+                    overlaySize.height,
+                    frameInfo.w,
+                    frameInfo.h,
+                  )
+                : undefined
+            }
           />
         )}
 
@@ -507,6 +573,33 @@ const CameraTestScreen = ({ navigation }: Props) => {
             <View style={styles.devRow}>
               <Text style={styles.devLabel}>Geliştirici: landmark görünürlük</Text>
               <Switch value={showDevDebug} onValueChange={setShowDevDebug} />
+            </View>
+          )}
+
+          {__DEV__ && (
+            <View style={styles.devRow}>
+              <Text style={styles.devLabel}>resizeMode: {devResizeMode}</Text>
+              <Switch
+                value={devResizeMode === 'contain'}
+                onValueChange={v => setDevResizeMode(v ? 'contain' : 'cover')}
+              />
+            </View>
+          )}
+
+          {__DEV__ && showDevDebug && frameInfo && (
+            <View style={styles.devCard}>
+              <Text style={styles.devCardTitle}>[DEV] Frame Info</Text>
+              <Text style={styles.devLine}>
+                frame: {frameInfo.w}×{frameInfo.h}  orient: {frameInfo.orientation}  mirror: {String(frameInfo.isMirrored)}
+              </Text>
+              <Text style={styles.devLine}>
+                overlay: {overlaySize.width.toFixed(0)}×{overlaySize.height.toFixed(0)}  mode: {devResizeMode}
+              </Text>
+              {frameInfo.rawBounds && (
+                <Text style={styles.devLine}>
+                  raw lm X: [{frameInfo.rawBounds.minX.toFixed(0)}–{frameInfo.rawBounds.maxX.toFixed(0)}]  Y: [{frameInfo.rawBounds.minY.toFixed(0)}–{frameInfo.rawBounds.maxY.toFixed(0)}]
+                </Text>
+              )}
             </View>
           )}
 
