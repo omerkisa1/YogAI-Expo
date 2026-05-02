@@ -98,6 +98,7 @@ const POSE_DURATION = 30;
 const ANALYZE_THROTTLE_MS = 150;
 const ML_TARGET_FPS = 10;
 const VISIBILITY_DEBUG_THRESHOLD = RULE_TRIANGLE_VISIBILITY;
+const HIP_VISIBILITY_FULL_BODY_THRESHOLD = 0.5;
 
 /** Metro’da `[YogAI.Pose]` ile filtrele. Release + fiziksel cihaz: `.env` içine `EXPO_PUBLIC_POSE_VERBOSE_LOG=1` */
 const ENABLE_POSE_CONSOLE_LOG =
@@ -183,7 +184,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
   const rulesOriginRef = useRef<'api' | 'fallback' | 'none'>('none');
   const fallbackRulesWarnedRef = useRef<Set<string>>(new Set());
   const landmarkSmootherRef = useRef(new LandmarkSmoother(0.3));
-  const accuracySmootherRef = useRef(new AccuracySmoother(5));
+  const accuracySmootherRef = useRef(new AccuracySmoother(8));
   const debugFrameCountRef = useRef(0);
   const DEBUG_MAX_FRAMES = 10;
 
@@ -350,6 +351,17 @@ const CameraTestScreen = ({ navigation }: Props) => {
     overlaySize.height,
   ]);
 
+  const showHipVisibilityWarning = useMemo(() => {
+    if (landmarks.length === 0) return false;
+    const lHip = landmarks.find(p => p.index === 23);
+    const rHip = landmarks.find(p => p.index === 24);
+    if (!lHip || !rHip) return false;
+    return (
+      lHip.visibility < HIP_VISIBILITY_FULL_BODY_THRESHOLD ||
+      rHip.visibility < HIP_VISIBILITY_FULL_BODY_THRESHOLD
+    );
+  }, [landmarks]);
+
   const onVisionPoseBundle = useRunOnJS((bundle: VisionPoseBundle) => {
     // Front camera: ML Kit indexes L/R from image perspective, not anatomically.
     // Swap left↔right landmark data so analyzer gets correct indices.
@@ -391,7 +403,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
     } else if (now - lastAnalyzeAtRef.current >= ANALYZE_THROTTLE_MS) {
       lastAnalyzeAtRef.current = now;
       const rawResult = analyzePoseClientSide(rules, smoothedPoints);
-      // Apply accuracy smoothing (5-frame moving average)
+      // Apply accuracy smoothing (8-frame moving average)
       rawResult.accuracyPercent = accuracySmootherRef.current.smooth(
         rawResult.accuracyPercent,
       );
@@ -694,6 +706,22 @@ const CameraTestScreen = ({ navigation }: Props) => {
         <View style={[styles.timerOverlay, { top: insets.top + spacing.sm + 44 }]}>
           <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
         </View>
+
+        {showHipVisibilityWarning && (
+          <View
+            style={[styles.hipWarningBanner, { top: insets.top + spacing.sm + 96 }]}
+            accessibilityRole="alert"
+          >
+            <MaterialCommunityIcons
+              name="arrow-expand-vertical"
+              size={22}
+              color={colors.textOnDark}
+            />
+            <Text style={styles.hipWarningText}>
+              Lütfen birkaç adım geri çekilin, tüm vücudunuz görünsün
+            </Text>
+          </View>
+        )}
 
         <ScrollView
           style={styles.accuracyScroll}
@@ -1148,6 +1176,26 @@ const styles = StyleSheet.create({
     ...typography.h2,
     color: colors.textOnDark,
     fontVariant: Platform.OS === 'ios' ? ['tabular-nums'] : undefined,
+  },
+  hipWarningBanner: {
+    position: 'absolute',
+    left: spacing.base,
+    right: spacing.base,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  hipWarningText: {
+    ...typography.bodySmMedium,
+    color: colors.textOnDark,
+    flex: 1,
+    lineHeight: 20,
   },
   accuracyScroll: {
     position: 'absolute',
