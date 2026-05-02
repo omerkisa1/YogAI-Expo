@@ -46,6 +46,7 @@ import {
   type LandmarkRule,
 } from '@/lib/poseAnalyzer';
 import { getFallbackRulesForPose } from '@/lib/fallbackPoseRules';
+import { LandmarkSmoother, AccuracySmoother } from '@/lib/poseSmoothing';
 import {
   getPreviewContentExtent,
   landmarksFromDetector,
@@ -180,6 +181,10 @@ const CameraTestScreen = ({ navigation }: Props) => {
   const devResizeModeRef = useRef<'cover' | 'contain'>('cover');
   const rulesOriginRef = useRef<'api' | 'fallback' | 'none'>('none');
   const fallbackRulesWarnedRef = useRef<Set<string>>(new Set());
+  const landmarkSmootherRef = useRef(new LandmarkSmoother(0.3));
+  const accuracySmootherRef = useRef(new AccuracySmoother(5));
+  const debugFrameCountRef = useRef(0);
+  const DEBUG_MAX_FRAMES = 10;
 
   const posesQuery = useQuery<AnalyzablePoseMeta[]>({
     queryKey: ['analyzable-poses'],
@@ -238,6 +243,10 @@ const CameraTestScreen = ({ navigation }: Props) => {
 
   useEffect(() => {
     selectedPoseIdRef.current = selectedPoseId;
+    // Reset smoothers when pose changes
+    landmarkSmootherRef.current.reset();
+    accuracySmootherRef.current.reset();
+    debugFrameCountRef.current = 0;
   }, [selectedPoseId]);
 
   useEffect(() => {
@@ -341,7 +350,13 @@ const CameraTestScreen = ({ navigation }: Props) => {
   ]);
 
   const onVisionPoseBundle = useRunOnJS((bundle: VisionPoseBundle) => {
-    setLandmarks(bundle.points);
+    // Apply landmark EMA smoothing
+    const smoothedPoints =
+      bundle.points.length > 0
+        ? landmarkSmootherRef.current.smooth(bundle.points)
+        : bundle.points;
+
+    setLandmarks(smoothedPoints);
     setFrameInfo({
       w: bundle.frameW,
       h: bundle.frameH,
@@ -362,12 +377,17 @@ const CameraTestScreen = ({ navigation }: Props) => {
     const rules = rulesRef.current;
     let analyzeJustComputed: AnalyzeResult | null = null;
 
-    if (bundle.points.length === 0 || rules.length === 0) {
+    if (smoothedPoints.length === 0 || rules.length === 0) {
       setAnalyzeResult(null);
       lastResultRef.current = null;
     } else if (now - lastAnalyzeAtRef.current >= ANALYZE_THROTTLE_MS) {
       lastAnalyzeAtRef.current = now;
-      analyzeJustComputed = analyzePoseClientSide(rules, bundle.points);
+      const rawResult = analyzePoseClientSide(rules, smoothedPoints);
+      // Apply accuracy smoothing (5-frame moving average)
+      rawResult.accuracyPercent = accuracySmootherRef.current.smooth(
+        rawResult.accuracyPercent,
+      );
+      analyzeJustComputed = rawResult;
       lastResultRef.current = analyzeJustComputed;
       setAnalyzeResult(analyzeJustComputed);
     }
@@ -391,6 +411,55 @@ const CameraTestScreen = ({ navigation }: Props) => {
         analyze: analyzeJustComputed ?? lastResultRef.current,
         fps: fpsDisplayRef.current,
       });
+    }
+
+    // === 10-FRAME DEBUG DUMP (DEV only) ===
+    if (
+      __DEV__ &&
+      debugFrameCountRef.current < DEBUG_MAX_FRAMES &&
+      analyzeJustComputed
+    ) {
+      debugFrameCountRef.current++;
+      const fc = debugFrameCountRef.current;
+
+      const pick = (pts: LandmarkPoint[], idx: number) =>
+        pts.find(l => l.index === idx);
+      const fmt = (p: LandmarkPoint | undefined) =>
+        p
+          ? `x=${p.x.toFixed(4)} y=${p.y.toFixed(4)} vis=${p.visibility.toFixed(3)}`
+          : 'N/A';
+
+      const rawPts = bundle.points;
+      const rShoulder = pick(rawPts, 12);
+      const rElbow = pick(rawPts, 14);
+      const rWrist = pick(rawPts, 16);
+      const rHip = pick(rawPts, 24);
+
+      const sRShoulder = pick(smoothedPoints, 12);
+      const sRElbow = pick(smoothedPoints, 14);
+
+      console.log(`\n[YogAI.Debug] Frame ${fc}/${DEBUG_MAX_FRAMES}`);
+      console.log(`  Raw  R.shoulder(12): ${fmt(rShoulder)}`);
+      console.log(`  Raw  R.elbow(14):    ${fmt(rElbow)}`);
+      console.log(`  Raw  R.wrist(16):    ${fmt(rWrist)}`);
+      console.log(`  Raw  R.hip(24):      ${fmt(rHip)}`);
+      console.log(`  Smooth R.shoulder:   ${fmt(sRShoulder)}`);
+      console.log(`  Smooth R.elbow:      ${fmt(sRElbow)}`);
+
+      analyzeJustComputed.rules.forEach(r => {
+        console.log(
+          `  Rule "${r.ruleId}": angle=${r.angleDegrees.toFixed(1)}° [${r.angleMin}–${r.angleMax}] score=${r.scorePercent.toFixed(0)}% status=${r.status}`,
+        );
+      });
+      console.log(
+        `  OVERALL: ${analyzeJustComputed.accuracyPercent.toFixed(1)}%`,
+      );
+
+      if (fc === DEBUG_MAX_FRAMES) {
+        console.log(
+          '\n[YogAI.Debug] 10 frame dump complete. Debug logging stopped.',
+        );
+      }
     }
   }, []);
 

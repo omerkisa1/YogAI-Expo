@@ -1,8 +1,11 @@
 /**
- * ML Kit stream mode often reports low `inFrameLikelihood` on elbows/wrists (e.g. ~0.05).
- * Web/MediaPipe-style 0.5–0.65 would skip almost every limb triangle on device.
+ * Minimum landmark visibility to include in angle calculation.
+ * Below this → rule is skipped (marked `low_visibility`), NOT scored.
  */
-export const RULE_TRIANGLE_VISIBILITY = 0.015;
+export const RULE_TRIANGLE_VISIBILITY = 0.5;
+
+/** At least this many landmarks (of 33) must be visible to attempt analysis. */
+const MIN_VISIBLE_LANDMARKS = 17;
 
 /** Outside target range, score linearly decays to 0 over this many degrees (web parity). */
 const TARGET_TOLERANCE_DEG = 15;
@@ -78,149 +81,20 @@ function landmarksUsable(
   );
 }
 
-function isHipIndex(i: number): boolean {
-  return i === 23 || i === 24;
-}
-
-function isShoulderIndex(i: number): boolean {
-  return i === 11 || i === 12;
-}
-
-/** Hip-tabanlı “kol düz yukarı” kurallarında frontal proxy için skor bandı (kalça sentetiği yanlış pozitifti). */
-/** Loglarda ~127–128° “kol tam dik değil” iken tam puan veriyordu; ≥135 tam hedef, altı toleransla azalır. */
-const CORONAL_VERTICAL_ARM_ANGLE_MIN = 135;
-const CORONAL_VERTICAL_ARM_ANGLE_MAX = 180;
-
-type ResolvedRuleTriple = {
-  a: LandmarkPoint;
-  b: LandmarkPoint;
-  c: LandmarkPoint;
-  effectiveAngleMin?: number;
-  effectiveAngleMax?: number;
-};
-
-/** API’de hip→shoulder→elbow + ~150–180° hedefi: omuz vertex’inde karşı omuz proxy kullanılır. */
-function isVerticalArmHipRule(rule: LandmarkRule): boolean {
-  return (
-    isHipIndex(rule.point_a) &&
-    isShoulderIndex(rule.point_b) &&
-    rule.angle_min >= 145 &&
-    rule.angle_max >= 175
-  );
-}
-
-function effectiveAnglesForCoronalProxy(rule: LandmarkRule): {
-  min: number;
-  max: number;
-} {
-  if (isVerticalArmHipRule(rule)) {
-    return {
-      min: CORONAL_VERTICAL_ARM_ANGLE_MIN,
-      max: CORONAL_VERTICAL_ARM_ANGLE_MAX,
-    };
-  }
-  return { min: rule.angle_min, max: rule.angle_max };
-}
-
-/** Hip occluded: place vertex on shoulder→ankle segment (torso_lean–style rules). */
-function syntheticHipBetweenShoulderAndAnkle(
-  shoulder: LandmarkPoint,
-  ankle: LandmarkPoint,
-): LandmarkPoint {
-  const t = 0.52;
-  return {
-    index: -2,
-    x: shoulder.x + t * (ankle.x - shoulder.x),
-    y: shoulder.y + t * (ankle.y - shoulder.y),
-    visibility: Math.min(shoulder.visibility, ankle.visibility),
-  };
-}
-
 /**
- * Resolve A,B,C for angle-at-B; hip kayıpken omuz kurallarında karşı omuz (frontal) proxy kullanılır.
+ * Simple direct triangle lookup — NO proxy, NO synthetic landmarks.
+ * If any of the 3 points is missing or below visibility threshold → null (rule skipped).
  */
 function resolveRuleLandmarks(
   landmarks: LandmarkPoint[],
   rule: LandmarkRule,
-): ResolvedRuleTriple | null {
+): { a: LandmarkPoint; b: LandmarkPoint; c: LandmarkPoint } | null {
   const pa = getLandmark(landmarks, rule.point_a);
   const pb = getLandmark(landmarks, rule.point_b);
   const pc = getLandmark(landmarks, rule.point_c);
 
-  if (landmarksUsable(pa, pb, pc)) {
-    return { a: pa!, b: pb!, c: pc! };
-  }
-
-  // Arm elevation: hip → shoulder → elbow (vertex shoulder), hip sık kayıp — sentetik kalça yerine karşı omuz.
-  if (
-    pb &&
-    pc &&
-    isHipIndex(rule.point_a) &&
-    isShoulderIndex(rule.point_b) &&
-    pb.visibility >= RULE_TRIANGLE_VISIBILITY &&
-    pc.visibility >= RULE_TRIANGLE_VISIBILITY &&
-    (!pa || pa.visibility < RULE_TRIANGLE_VISIBILITY)
-  ) {
-    if (isVerticalArmHipRule(rule) && pc.y > pb.y + 0.1) {
-      return null;
-    }
-    const eff = effectiveAnglesForCoronalProxy(rule);
-    if (rule.point_b === 12 && rule.point_c === 14) {
-      const ls = getLandmark(landmarks, 11);
-      if (landmarksUsable(ls, pb, pc)) {
-        return {
-          a: ls!,
-          b: pb,
-          c: pc,
-          effectiveAngleMin: eff.min,
-          effectiveAngleMax: eff.max,
-        };
-      }
-    }
-    if (rule.point_b === 11 && rule.point_c === 13) {
-      const rs = getLandmark(landmarks, 12);
-      if (landmarksUsable(rs, pb, pc)) {
-        return {
-          a: rs!,
-          b: pb,
-          c: pc,
-          effectiveAngleMin: eff.min,
-          effectiveAngleMax: eff.max,
-        };
-      }
-    }
-  }
-
-  // Fault torso lean: shoulder → hip → ankle (vertex hip).
-  if (
-    pa &&
-    pc &&
-    isHipIndex(rule.point_b) &&
-    pa.visibility >= RULE_TRIANGLE_VISIBILITY &&
-    pc.visibility >= RULE_TRIANGLE_VISIBILITY &&
-    (!pb || pb.visibility < RULE_TRIANGLE_VISIBILITY)
-  ) {
-    const syn = syntheticHipBetweenShoulderAndAnkle(pa, pc);
-    if (landmarksUsable(pa, syn, pc)) {
-      return { a: pa, b: syn, c: pc };
-    }
-  }
-
-  return null;
-}
-
-function analysisAngleBounds(
-  rule: LandmarkRule,
-  angleMinOverride?: number,
-  angleMaxOverride?: number,
-): { min: number; max: number } {
-  if (rule.rule_type !== 'target') {
-    return { min: rule.angle_min, max: rule.angle_max };
-  }
-  return {
-    min: angleMinOverride ?? rule.angle_min,
-    max: angleMaxOverride ?? rule.angle_max,
-  };
+  if (!landmarksUsable(pa, pb, pc)) return null;
+  return { a: pa!, b: pb!, c: pc! };
 }
 
 /** Angle at vertex B between BA and BC, degrees 0–180. */
@@ -267,19 +141,15 @@ export function scoreRule(
   rule: LandmarkRule,
   angle: number,
   visibilityOk: boolean,
-  angleMinOverride?: number,
-  angleMaxOverride?: number,
 ): RuleAnalysis {
-  const bounds = analysisAngleBounds(rule, angleMinOverride, angleMaxOverride);
-
   if (!visibilityOk) {
     return {
       ruleId: rule.rule_id,
       angleDegrees: angle,
       scorePercent: 0,
       status: 'low_visibility',
-      angleMin: bounds.min,
-      angleMax: bounds.max,
+      angleMin: rule.angle_min,
+      angleMax: rule.angle_max,
       ruleType: rule.rule_type,
       feedbackTr: rule.feedback_tr,
       feedbackEn: rule.feedback_en,
@@ -304,14 +174,14 @@ export function scoreRule(
     };
   }
 
-  const score = scoreTargetAngle(angle, bounds.min, bounds.max);
+  const score = scoreTargetAngle(angle, rule.angle_min, rule.angle_max);
   return {
     ruleId: rule.rule_id,
     angleDegrees: angle,
     scorePercent: score,
     status: statusFromScore(score, false),
-    angleMin: bounds.min,
-    angleMax: bounds.max,
+    angleMin: rule.angle_min,
+    angleMax: rule.angle_max,
     ruleType: 'target',
     feedbackTr: rule.feedback_tr,
     feedbackEn: rule.feedback_en,
@@ -322,6 +192,18 @@ export function analyzePoseClientSide(
   rules: LandmarkRule[],
   landmarks: LandmarkPoint[],
 ): AnalyzeResult {
+  // Minimum landmark visibility check — too few visible → unreliable
+  const visibleCount = landmarks.filter(
+    l => l.visibility >= RULE_TRIANGLE_VISIBILITY,
+  ).length;
+  if (visibleCount < MIN_VISIBLE_LANDMARKS) {
+    return {
+      accuracyPercent: 0,
+      faultPenaltyTotal: 0,
+      rules: [],
+    };
+  }
+
   const ruleResults: RuleAnalysis[] = [];
   let targetWeighted = 0;
   let targetWeightSum = 0;
@@ -340,26 +222,18 @@ export function analyzePoseClientSide(
           triple.c.y,
         )
       : 0;
-    const analysis = scoreRule(
-      rule,
-      angle,
-      ok,
-      triple?.effectiveAngleMin,
-      triple?.effectiveAngleMax,
-    );
+    const analysis = scoreRule(rule, angle, ok);
     ruleResults.push(analysis);
 
+    if (!ok) continue; // Low visibility → skip scoring entirely
+
     if (rule.rule_type === 'fault') {
-      if (!ok) continue;
       if (analysis.status === 'fault_detected') {
         faultPenaltyTotal += rule.fault_penalty_percent ?? 0;
       }
     } else {
-      /** Çözülemeyen hedef kurallar da ağırlığa girer (pay = 0); yoksa tek kural %100 üretir. */
+      targetWeighted += analysis.scorePercent * rule.weight;
       targetWeightSum += rule.weight;
-      if (ok) {
-        targetWeighted += analysis.scorePercent * rule.weight;
-      }
     }
   }
 

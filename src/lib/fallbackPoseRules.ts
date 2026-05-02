@@ -5,10 +5,10 @@ export const FALLBACK_RULES_BY_POSE_ID: Record<string, LandmarkRule[]> = {
   test_right_arm_up: [
     {
       rule_id: 'right_shoulder',
-      point_a: 11,
+      point_a: 24,
       point_b: 12,
       point_c: 14,
-      angle_min: 135,
+      angle_min: 150,
       angle_max: 180,
       weight: 0.5,
       rule_type: 'target',
