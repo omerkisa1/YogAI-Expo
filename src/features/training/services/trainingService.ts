@@ -1,14 +1,30 @@
 import api from '@/shared/api/axiosInstance';
 import type { StartSessionResponse, SubmitPoseRequest, TrainingSession, TrainingStats } from '@/shared/types/training';
 
+type ApiWrapper<T> = { status: number; message: string; data: T };
+
 export const trainingService = {
   startSession: (planId: string) =>
-    api.post<StartSessionResponse>('/api/v1/training/start', { plan_id: planId }).then(r => r.data),
+    api.post<ApiWrapper<StartSessionResponse>>('/api/v1/training/start', { plan_id: planId })
+      .then(r => r.data.data),
+
   submitPose: (sessionId: string, data: SubmitPoseRequest) =>
-    api.post(`/api/v1/training/sessions/${sessionId}/pose`, data).then(r => r.data),
+    api.post<ApiWrapper<unknown>>(`/api/v1/training/sessions/${sessionId}/pose`, data)
+      .then(r => r.data.data),
+
   completeSession: (sessionId: string) =>
-    api.post(`/api/v1/training/sessions/${sessionId}/complete`).then(r => r.data),
-  getSessions: () => api.get<TrainingSession[]>('/api/v1/training/sessions').then(r => r.data),
-  getSession: (id: string) => api.get<TrainingSession>(`/api/v1/training/sessions/${id}`).then(r => r.data),
-  getStats: () => api.get<TrainingStats>('/api/v1/training/stats').then(r => r.data),
+    api.post<ApiWrapper<unknown>>(`/api/v1/training/sessions/${sessionId}/complete`)
+      .then(r => r.data.data),
+
+  getSessions: () =>
+    api.get<ApiWrapper<TrainingSession[]>>('/api/v1/training/sessions')
+      .then(r => r.data.data ?? []),
+
+  getSession: (id: string) =>
+    api.get<ApiWrapper<{ session: TrainingSession }>>(`/api/v1/training/sessions/${id}`)
+      .then(r => r.data.data.session),
+
+  getStats: () =>
+    api.get<ApiWrapper<TrainingStats>>('/api/v1/training/stats')
+      .then(r => r.data.data),
 };
