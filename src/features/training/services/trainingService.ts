@@ -6,7 +6,10 @@ type ApiWrapper<T> = { status: number; message: string; data: T };
 export const trainingService = {
   startSession: (planId: string) =>
     api.post<ApiWrapper<StartSessionResponse>>('/api/v1/training/start', { plan_id: planId })
-      .then(r => r.data.data),
+      .then(r => {
+        const d = r.data.data;
+        return { ...d, session_id: d.session_id ?? d.id ?? '' };
+      }),
 
   submitPose: (sessionId: string, data: SubmitPoseRequest) =>
     api.post<ApiWrapper<unknown>>(`/api/v1/training/sessions/${sessionId}/pose`, data)
@@ -21,8 +24,8 @@ export const trainingService = {
       .then(r => r.data.data ?? []),
 
   getSession: (id: string) =>
-    api.get<ApiWrapper<{ session: TrainingSession }>>(`/api/v1/training/sessions/${id}`)
-      .then(r => r.data.data.session),
+    api.get<ApiWrapper<TrainingSession>>(`/api/v1/training/sessions/${id}`)
+      .then(r => r.data.data),
 
   getStats: () =>
     api.get<ApiWrapper<TrainingStats>>('/api/v1/training/stats')

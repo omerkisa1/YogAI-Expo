@@ -12,7 +12,7 @@ import ProgressBar from '@/shared/components/ProgressBar';
 import SkeletonLoader from '@/shared/components/SkeletonLoader';
 import Touchable from '@/shared/components/Touchable';
 import type { TrainingSession } from '@/shared/types/training';
-import type { MainTabParamList, RootStackParamList } from '@/navigation/types';
+import type { RootStackParamList } from '@/navigation/types';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
@@ -49,8 +49,7 @@ const safePercent = (val: unknown): string => {
 };
 
 const TrainingHistoryScreen = () => {
-  const navigation = useNavigation<NavigationProp<MainTabParamList>>();
-  const rootNavigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const sessionsQuery = useTrainingSessions();
   const statsQuery = useTrainingStats();
   const [refreshing, setRefreshing] = useState(false);
@@ -101,7 +100,7 @@ const TrainingHistoryScreen = () => {
     const completedMoveCount = item.results?.length ?? 0;
 
     return (
-      <Touchable onPress={() => { Toast.show({ type: 'info', position: 'top', text1: 'Detay yakında', text2: 'Antrenman detay ekranı sonraki adımda eklenecek.' }); }} style={styles.sessionPressable} borderRadius={radius.lg} accessibilityRole="button" accessibilityLabel="Antrenman oturumu detay">
+      <Touchable onPress={() => navigation.navigate('TrainingSessionDetail', { sessionId: item.id })} style={styles.sessionPressable} borderRadius={radius.lg} accessibilityRole="button" accessibilityLabel="Antrenman oturumu detay">
         <Card variant="default" style={styles.sessionCard}>
           <View style={styles.sessionHeaderRow}>
             <Text style={styles.sessionTitle}>Plan #{item.plan_id.slice(0, 8)}</Text>
@@ -134,7 +133,7 @@ const TrainingHistoryScreen = () => {
         ListHeaderComponent={
           <View>
             <Text style={styles.pageTitle}>Antrenmanlarım</Text>
-            <Button title="Poz Testi" onPress={() => rootNavigation.navigate('CameraTest')} variant="outline" size="md" fullWidth icon="camera-outline" accessibilityLabel="Poz testi aç" style={styles.cameraButton} />
+            <Button title="Poz Testi" onPress={() => navigation.navigate('CameraTest')} variant="outline" size="md" fullWidth icon="camera-outline" accessibilityLabel="Poz testi aç" style={styles.cameraButton} />
             <LinearGradient colors={[colors.gradientHero[0], colors.gradientHero[1]]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
               <View style={styles.heroStatsRow}>
                 <View style={styles.heroStatItem}>
@@ -165,7 +164,7 @@ const TrainingHistoryScreen = () => {
             <View style={styles.emptyIconWrap}><MaterialCommunityIcons name="meditation" size={32} color={colors.accent} /></View>
             <Text style={styles.emptyTitle}>Henüz antrenman yapmadınız</Text>
             <Text style={styles.emptyDescription}>Bir plan seçerek ilk antrenmanınıza başlayın.</Text>
-            <Button title="Planlara Git" onPress={() => navigation.navigate('Plans')} variant="primary" size="lg" fullWidth={false} accessibilityLabel="Planlara git" />
+            <Button title="Planlara Git" onPress={() => navigation.navigate('MainTabs', { screen: 'Plans' })} variant="primary" size="lg" fullWidth={false} accessibilityLabel="Planlara git" />
           </View>
         }
         ListFooterComponent={<View style={styles.listFooter} />}

@@ -1,8 +1,8 @@
 export interface PoseResult {
   pose_id: string;
   accuracy: number;
-  duration_sec: number;
-  timestamp?: string;
+  duration_seconds: number;
+  completed_at?: string;
 }
 
 export interface TrainingSession {
@@ -17,14 +17,15 @@ export interface TrainingSession {
 }
 
 export interface StartSessionResponse {
-  session_id: string;
+  session_id?: string;
+  id?: string;
   status: 'active';
 }
 
 export interface SubmitPoseRequest {
   pose_id: string;
   accuracy: number;
-  duration_sec: number;
+  duration_seconds: number;
 }
 
 export interface TrainingStats {
