@@ -1,23 +1,45 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
+  LayoutChangeEvent,
   Platform,
   SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import {
+  Camera,
+  runAtTargetFps,
+  useCameraDevice,
+  useCameraFormat,
+  useCameraPermission,
+  useFrameProcessor,
+} from 'react-native-vision-camera';
+import { useRunOnJS } from 'react-native-worklets-core';
+import { detectPose } from 'vision-camera-pose-detector';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+
 import api from '@/shared/api/axiosInstance';
 import Button from '@/shared/components/Button';
+import { SkeletonOverlay } from '@/shared/components/SkeletonOverlay';
 import type { RootStackParamList } from '@/navigation/types';
+import {
+  analyzePoseClientSide,
+  type AnalyzeResult,
+  type LandmarkPoint,
+  parseLandmarkRules,
+  type LandmarkRule,
+} from '@/lib/poseAnalyzer';
+import { landmarksFromDetector, POSE_LANDMARK_KEYS } from '@/lib/poseLandmarks';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
@@ -33,6 +55,8 @@ type AnalyzablePose = {
   instructions_en: string;
   instructions_tr: string;
   category: string;
+  landmark_rules?: unknown;
+  landmarkRules?: unknown;
 };
 
 type AnalyzablePoseMeta = {
@@ -52,12 +76,24 @@ type ApiResponse<T> = {
 type ScreenState = 'pose_selection' | 'active' | 'completed';
 
 const POSE_DURATION = 30;
+const ANALYZE_THROTTLE_MS = 150;
+const ML_TARGET_FPS = 10;
+const VISIBILITY_DEBUG_THRESHOLD = 0.65;
 
 const formatTime = (seconds: number): string => {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 };
+
+const landmarkDebugName = (index: number): string =>
+  POSE_LANDMARK_KEYS[index] ?? `idx_${index}`;
+
+function accuracyColor(accuracy: number): string {
+  if (accuracy >= 80) return colors.success;
+  if (accuracy >= 50) return colors.warning;
+  return colors.error;
+}
 
 const DifficultyDots = ({ level }: { level: number }) => (
   <View style={styles.difficultyRow}>
@@ -73,14 +109,34 @@ const DifficultyDots = ({ level }: { level: number }) => (
   </View>
 );
 
+type RuleListIconName =
+  | 'check-circle'
+  | 'alert'
+  | 'eye-off'
+  | 'close-circle';
+
 const CameraTestScreen = ({ navigation }: Props) => {
   const insets = useSafeAreaInsets();
-  const [permission, requestPermission] = useCameraPermissions();
+  const { hasPermission, requestPermission } = useCameraPermission();
+
   const [screenState, setScreenState] = useState<ScreenState>('pose_selection');
   const [selectedPoseId, setSelectedPoseId] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(POSE_DURATION);
   const [isTimerActive, setIsTimerActive] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [landmarks, setLandmarks] = useState<LandmarkPoint[]>([]);
+  const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResult | null>(null);
+  const [fps, setFps] = useState(0);
+  const [overlaySize, setOverlaySize] = useState({ width: 0, height: 0 });
+  const [showDevDebug, setShowDevDebug] = useState(false);
+  const [completedAccuracy, setCompletedAccuracy] = useState<number | null>(null);
+
+  const rulesRef = useRef<LandmarkRule[]>([]);
+  const lastAnalyzeAtRef = useRef(0);
+  const lastResultRef = useRef<AnalyzeResult | null>(null);
+  const fpsCountRef = useRef(0);
+  const fpsLastTickRef = useRef(Date.now());
 
   const posesQuery = useQuery<AnalyzablePoseMeta[]>({
     queryKey: ['analyzable-poses'],
@@ -101,6 +157,19 @@ const CameraTestScreen = ({ navigation }: Props) => {
 
   const selectedPose = poseDetailQuery.data;
 
+  useEffect(() => {
+    rulesRef.current = parseLandmarkRules(
+      selectedPose?.landmark_rules ?? selectedPose?.landmarkRules,
+    );
+  }, [selectedPose?.landmark_rules, selectedPose?.landmarkRules]);
+
+  const device = useCameraDevice('front');
+  const screen = Dimensions.get('window');
+  const format = useCameraFormat(device, [
+    { fps: 30 },
+    { videoAspectRatio: screen.height / screen.width },
+  ]);
+
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -116,6 +185,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
       setTimeLeft(prev => {
         if (prev <= 1) {
           stopTimer();
+          setCompletedAccuracy(lastResultRef.current?.accuracyPercent ?? null);
           setScreenState('completed');
           return 0;
         }
@@ -132,10 +202,59 @@ const CameraTestScreen = ({ navigation }: Props) => {
     return () => stopTimer();
   }, [stopTimer]);
 
+  const onPoseFromWorklet = useRunOnJS((points: LandmarkPoint[]) => {
+    setLandmarks(points);
+
+    const now = Date.now();
+    fpsCountRef.current += 1;
+    if (now - fpsLastTickRef.current >= 1000) {
+      setFps(fpsCountRef.current);
+      fpsCountRef.current = 0;
+      fpsLastTickRef.current = now;
+    }
+
+    const rules = rulesRef.current;
+    if (points.length === 0 || rules.length === 0) {
+      setAnalyzeResult(null);
+      lastResultRef.current = null;
+      return;
+    }
+
+    if (now - lastAnalyzeAtRef.current >= ANALYZE_THROTTLE_MS) {
+      lastAnalyzeAtRef.current = now;
+      const result = analyzePoseClientSide(rules, points);
+      lastResultRef.current = result;
+      setAnalyzeResult(result);
+    }
+  }, []);
+
+  const frameProcessor = useFrameProcessor(
+    frame => {
+      'worklet';
+      runAtTargetFps(ML_TARGET_FPS, () => {
+        'worklet';
+        const pose = detectPose(frame);
+        if (pose == null) {
+          onPoseFromWorklet([]);
+          return;
+        }
+        const mapped = landmarksFromDetector(pose, frame.width, frame.height);
+        onPoseFromWorklet(mapped);
+      });
+    },
+    [onPoseFromWorklet],
+  );
+
+  const isAnalyzing = screenState === 'active';
+
   const handleStart = () => {
     if (!selectedPoseId) return;
     setTimeLeft(POSE_DURATION);
     setScreenState('active');
+    setLandmarks([]);
+    setAnalyzeResult(null);
+    lastResultRef.current = null;
+    setCompletedAccuracy(null);
     setIsTimerActive(true);
   };
 
@@ -143,23 +262,54 @@ const CameraTestScreen = ({ navigation }: Props) => {
     stopTimer();
     setScreenState('pose_selection');
     setTimeLeft(POSE_DURATION);
+    setLandmarks([]);
+    setAnalyzeResult(null);
+    fpsCountRef.current = 0;
+    setFps(0);
   };
 
   const handleTryAnother = () => {
     stopTimer();
     setScreenState('pose_selection');
     setTimeLeft(POSE_DURATION);
+    setCompletedAccuracy(null);
   };
 
-  if (!permission) {
+  const onCameraLayout = (e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    setOverlaySize({ width, height });
+  };
+
+  const targetPercentDisplay = useMemo(() => {
+    if (!analyzeResult || analyzeResult.rules.length === 0) return null;
+    const targets = analyzeResult.rules.filter(r => r.ruleType === 'target');
+    if (targets.length === 0) return null;
+    const avg =
+      targets.reduce((s, r) => s + r.scorePercent, 0) / targets.length;
+    return Math.round(avg * 10) / 10;
+  }, [analyzeResult]);
+
+  if (device == null) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <ActivityIndicator color={colors.primary} style={{ flex: 1 }} />
+        <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
+        <View style={styles.permissionContainer}>
+          <MaterialCommunityIcons name="camera-off" size={64} color={colors.textMuted} />
+          <Text style={styles.permissionTitle}>Kamera bulunamadı</Text>
+          <Text style={styles.permissionDesc}>Ön kamera bu cihazda kullanılamıyor.</Text>
+          <Button
+            title="Geri Dön"
+            onPress={() => navigation.goBack()}
+            variant="outline"
+            size="lg"
+            fullWidth
+          />
+        </View>
       </SafeAreaView>
     );
   }
 
-  if (!permission.granted) {
+  if (!hasPermission) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
@@ -195,11 +345,17 @@ const CameraTestScreen = ({ navigation }: Props) => {
             </Text>
           )}
           <Text style={styles.completedDuration}>Süre: {POSE_DURATION} saniye</Text>
+          {completedAccuracy != null && (
+            <Text style={styles.completedAccuracy}>
+              Son doğruluk: {completedAccuracy.toFixed(1)}%
+            </Text>
+          )}
 
           <View style={styles.infoCard}>
-            <MaterialCommunityIcons name="information-outline" size={18} color={colors.warning} />
-            <Text style={styles.infoText}>
-              Accuracy hesaplaması için landmark detection gerekli. Sonraki güncellemeyle gelecek.
+            <MaterialCommunityIcons name="information-outline" size={18} color={colors.primary} />
+            <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+              ML Kit vücut tespiti ve kural skorları gerçek zamanlı uygulandı. Antrenman akışında da aynı
+              mantık kullanılabilir.
             </Text>
           </View>
 
@@ -229,37 +385,163 @@ const CameraTestScreen = ({ navigation }: Props) => {
   }
 
   if (screenState === 'active') {
-    return (
-      <View style={styles.cameraFullScreen}>
-        <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-        <CameraView style={StyleSheet.absoluteFill} facing="front" mirror />
+    const acc = analyzeResult?.accuracyPercent ?? 0;
+    const accTint = accuracyColor(acc);
 
-        <View style={[styles.timerOverlay, { top: insets.top + spacing.base }]}>
+    return (
+      <View style={styles.cameraFullScreen} onLayout={onCameraLayout}>
+        <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+        <Camera
+          style={StyleSheet.absoluteFill}
+          device={device}
+          isActive={isAnalyzing}
+          format={format}
+          fps={30}
+          photo={false}
+          video={false}
+          audio={false}
+          enableBufferCompression={false}
+          frameProcessor={frameProcessor}
+          pixelFormat="yuv"
+          videoStabilizationMode="off"
+          outputOrientation="device"
+        />
+
+        {landmarks.length > 0 && overlaySize.width > 0 && (
+          <SkeletonOverlay
+            landmarks={landmarks}
+            mirror
+            width={overlaySize.width}
+            height={overlaySize.height}
+          />
+        )}
+
+        <View style={[styles.fpsPill, { top: insets.top + spacing.sm }]}>
+          <Text style={styles.fpsText}>FPS: {fps}</Text>
+        </View>
+
+        <View style={[styles.timerOverlay, { top: insets.top + spacing.sm + 44 }]}>
           <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
         </View>
 
-        {selectedPose && (
-          <View style={[styles.cameraBottomPanel, { paddingBottom: insets.bottom + spacing.base }]}>
-            <Text style={styles.activePoseName} numberOfLines={1}>
-              {selectedPose.name_tr || selectedPose.name_en}
+        <ScrollView
+          style={styles.accuracyScroll}
+          contentContainerStyle={[
+            styles.accuracyScrollContent,
+            { paddingBottom: insets.bottom + spacing.base },
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.accuracyPanel}>
+            <Text style={styles.accuracyLabel}>Accuracy</Text>
+            <Text style={[styles.accuracyPercent, { color: accTint }]}>
+              {analyzeResult ? `${acc.toFixed(1)}%` : '—'}
             </Text>
-            <DifficultyDots level={selectedPose.difficulty} />
-            {(selectedPose.instructions_tr || selectedPose.instructions_en) ? (
-              <Text style={styles.activeInstruction} numberOfLines={3}>
-                {selectedPose.instructions_tr || selectedPose.instructions_en}
+            <View style={[styles.progressTrack, { borderColor: accTint }]}>
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    width: `${Math.min(100, Math.max(0, acc))}%`,
+                    backgroundColor: accTint,
+                  },
+                ]}
+              />
+            </View>
+            {analyzeResult && (
+              <Text style={styles.targetRow}>
+                Hedef (kural ort.):{' '}
+                {targetPercentDisplay != null ? `${targetPercentDisplay.toFixed(1)}%` : '—'} | Fault: −
+                {analyzeResult.faultPenaltyTotal.toFixed(1)}%
               </Text>
-            ) : null}
-            <Button
-              title="Durdur"
-              onPress={handleStop}
-              variant="danger"
-              size="lg"
-              fullWidth
-              icon="stop-circle-outline"
-              accessibilityLabel="Antrenmanı durdur"
-            />
+            )}
           </View>
-        )}
+
+          {analyzeResult && analyzeResult.rules.length > 0 && (
+            <View style={styles.rulesCard}>
+              {analyzeResult.rules.map(rule => {
+                const border =
+                  rule.status === 'good'
+                    ? colors.success
+                    : rule.status === 'needs_improvement'
+                      ? colors.warning
+                      : rule.status === 'low_visibility'
+                        ? colors.textMuted
+                        : colors.error;
+                const iconName: RuleListIconName =
+                  rule.status === 'good'
+                    ? 'check-circle'
+                    : rule.status === 'needs_improvement'
+                      ? 'alert'
+                      : rule.status === 'low_visibility'
+                        ? 'eye-off'
+                        : 'close-circle';
+                const feedback = rule.feedbackTr ?? rule.feedbackEn ?? '';
+                return (
+                  <View key={rule.ruleId} style={[styles.ruleRow, { borderLeftColor: border }]}>
+                    <View style={styles.ruleRowHeader}>
+                      <MaterialCommunityIcons name={iconName} size={20} color={border} />
+                      <Text style={styles.ruleTitle}>{rule.ruleId}</Text>
+                      <Text style={styles.ruleAngle}>
+                        {rule.angleDegrees.toFixed(1)}° [{rule.angleMin}–{rule.angleMax}°] →{' '}
+                        {rule.scorePercent.toFixed(0)}%
+                      </Text>
+                    </View>
+                    {rule.status === 'fault_detected' && rule.penaltyPercent != null && (
+                      <Text style={styles.ruleFault}>Fault! −{rule.penaltyPercent}%</Text>
+                    )}
+                    {feedback.length > 0 && rule.status !== 'good' && (
+                      <Text style={styles.ruleFeedback}>{feedback}</Text>
+                    )}
+                    {rule.status === 'low_visibility' && feedback.length === 0 && (
+                      <Text style={styles.ruleFeedback}>Görünmüyor — aydınlatma / mesafe</Text>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {__DEV__ && (
+            <View style={styles.devRow}>
+              <Text style={styles.devLabel}>Geliştirici: landmark görünürlük</Text>
+              <Switch value={showDevDebug} onValueChange={setShowDevDebug} />
+            </View>
+          )}
+
+          {__DEV__ && showDevDebug && landmarks.length > 0 && (
+            <View style={styles.devCard}>
+              <Text style={styles.devCardTitle}>[DEV] Landmark visibility</Text>
+              {landmarks.map(lm => {
+                const ok = lm.visibility >= VISIBILITY_DEBUG_THRESHOLD;
+                return (
+                  <Text key={lm.index} style={styles.devLine}>
+                    {lm.index} ({landmarkDebugName(lm.index)}): {lm.visibility.toFixed(2)}{' '}
+                    {ok ? '✓' : '✗'} (&lt; {VISIBILITY_DEBUG_THRESHOLD})
+                  </Text>
+                );
+              })}
+            </View>
+          )}
+
+          {selectedPose && (
+            <View style={styles.activeFooter}>
+              <Text style={styles.activePoseName} numberOfLines={1}>
+                Poz: {selectedPose.name_tr || selectedPose.name_en}
+              </Text>
+              <Button
+                title="Durdur"
+                onPress={handleStop}
+                variant="danger"
+                size="lg"
+                fullWidth
+                icon="stop-circle-outline"
+                accessibilityLabel="Antrenmanı durdur"
+              />
+            </View>
+          )}
+        </ScrollView>
       </View>
     );
   }
@@ -543,6 +825,19 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.text,
   },
+  fpsPill: {
+    position: 'absolute',
+    left: spacing.base,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  fpsText: {
+    ...typography.bodySmMedium,
+    color: colors.textOnDark,
+    fontVariant: Platform.OS === 'ios' ? ['tabular-nums'] : undefined,
+  },
   timerOverlay: {
     position: 'absolute',
     alignSelf: 'center',
@@ -556,26 +851,126 @@ const styles = StyleSheet.create({
     color: colors.textOnDark,
     fontVariant: Platform.OS === 'ios' ? ['tabular-nums'] : undefined,
   },
-  cameraBottomPanel: {
+  accuracyScroll: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.72)',
+    maxHeight: '52%',
+  },
+  accuracyScrollContent: {
     paddingHorizontal: spacing.base,
-    paddingTop: spacing.lg,
+    paddingTop: spacing.sm,
     gap: spacing.sm,
-    borderTopLeftRadius: radius.xxl,
-    borderTopRightRadius: radius.xxl,
+  },
+  accuracyPanel: {
+    backgroundColor: 'rgba(248,247,244,0.88)',
+    borderRadius: radius.lg,
+    padding: spacing.base,
+    borderWidth: 1,
+    borderColor: 'rgba(45,139,94,0.35)',
+    gap: spacing.xs,
+  },
+  accuracyLabel: {
+    ...typography.bodySmMedium,
+    color: colors.textSecondary,
+  },
+  accuracyPercent: {
+    ...typography.h2,
+    fontVariant: Platform.OS === 'ios' ? ['tabular-nums'] : undefined,
+  },
+  progressTrack: {
+    height: 10,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.65)',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: radius.full,
+  },
+  targetRow: {
+    ...typography.bodySm,
+    color: colors.textSecondary,
+  },
+  rulesCard: {
+    backgroundColor: 'rgba(248,247,244,0.9)',
+    borderRadius: radius.lg,
+    padding: spacing.sm,
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+  },
+  ruleRow: {
+    borderLeftWidth: 4,
+    paddingLeft: spacing.sm,
+    gap: spacing.xs,
+  },
+  ruleRowHeader: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  ruleTitle: {
+    ...typography.bodySmMedium,
+    color: colors.text,
+    flex: 1,
+    minWidth: 120,
+  },
+  ruleAngle: {
+    ...typography.bodySm,
+    color: colors.textSecondary,
+    flexBasis: '100%',
+  },
+  ruleFault: {
+    ...typography.bodySmMedium,
+    color: colors.error,
+  },
+  ruleFeedback: {
+    ...typography.bodySm,
+    color: colors.text,
+  },
+  devRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(248,247,244,0.85)',
+    padding: spacing.sm,
+    borderRadius: radius.md,
+  },
+  devLabel: {
+    ...typography.bodySm,
+    color: colors.text,
+  },
+  devCard: {
+    backgroundColor: 'rgba(30,30,30,0.85)',
+    padding: spacing.base,
+    borderRadius: radius.lg,
+    gap: spacing.xs,
+  },
+  devCardTitle: {
+    ...typography.bodySmMedium,
+    color: colors.textOnDark,
+    marginBottom: spacing.xs,
+  },
+  devLine: {
+    ...typography.bodySm,
+    color: colors.textOnDark,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  activeFooter: {
+    gap: spacing.sm,
+    marginTop: spacing.xs,
   },
   activePoseName: {
-    ...typography.h3,
+    ...typography.h4,
     color: colors.textOnDark,
-  },
-  activeInstruction: {
-    ...typography.bodySm,
-    color: 'rgba(255,255,255,0.75)',
-    lineHeight: 20,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.35)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   completedContainer: {
     flex: 1,
@@ -598,20 +993,23 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.textMuted,
   },
+  completedAccuracy: {
+    ...typography.h4,
+    color: colors.primary,
+  },
   infoCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: spacing.sm,
-    backgroundColor: colors.warningSoft,
+    backgroundColor: colors.primarySoft,
     borderRadius: radius.lg,
     padding: spacing.base,
     borderWidth: 1,
-    borderColor: colors.warning,
+    borderColor: colors.primaryLight,
     width: '100%',
   },
   infoText: {
     ...typography.bodySm,
-    color: colors.warningDark,
     flex: 1,
     lineHeight: 20,
   },

@@ -29,9 +29,11 @@
       "expo-splash-screen",
       "expo-web-browser",
       [
-        "expo-camera",
+        "react-native-vision-camera",
         {
-          "cameraPermission": "YogAI, yoga pozlarınızı analiz etmek için kameraya erişim istiyor."
+          "cameraPermissionText": "YogAI, yoga pozlarınızı analiz etmek için kameraya erişim istiyor.",
+          "enableMicrophonePermission": false,
+          "enableFrameProcessors": true
         }
       ]
     ]
