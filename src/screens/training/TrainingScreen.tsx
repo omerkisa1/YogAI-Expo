@@ -26,6 +26,7 @@ const TrainingScreen = ({ route, navigation }: Props) => {
           <Text style={styles.metaLabel}>Oturum ID</Text>
           <Text style={styles.metaValue}>{route.params.sessionId}</Text>
         </View>
+        <Button title="Poz Testi Başlat" onPress={() => navigation.navigate('CameraTest')} variant="primary" size="lg" fullWidth icon="camera-outline" accessibilityLabel="Poz testi başlat" />
         <Button title="Geri Dön" onPress={() => navigation.goBack()} variant="outline" size="lg" fullWidth icon="arrow-left" accessibilityLabel="Geri dön" />
       </View>
     </SafeAreaView>

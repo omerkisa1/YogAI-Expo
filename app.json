@@ -27,7 +27,13 @@
     },
     "plugins": [
       "expo-splash-screen",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "YogAI, yoga pozlarınızı analiz etmek için kameraya erişim istiyor."
+        }
+      ]
     ]
   }
 }

@@ -24,4 +24,5 @@ export type RootStackParamList = {
     | undefined;
   EditProfile: undefined;
   TrainingSession: { planId: string; sessionId: string };
+  CameraTest: undefined;
 };

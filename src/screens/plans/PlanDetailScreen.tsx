@@ -193,6 +193,7 @@ const PlanDetailScreen = ({ route, navigation }: Props) => {
       </ScrollView>
 
       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, spacing.base) }]}>
+        <Button title="Poz Testi" onPress={() => navigation.navigate('CameraTest')} variant="outline" size="md" fullWidth icon="camera-outline" accessibilityLabel="Poz testi aç" />
         <Button title="Antrenmanı Başlat" onPress={onStartTraining} variant="primary" size="lg" fullWidth icon="play-circle-outline" loading={startSessionMutation.isPending} disabled={startSessionMutation.isPending} accessibilityLabel="Antrenmanı başlat" />
       </View>
 

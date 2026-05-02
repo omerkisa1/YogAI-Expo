@@ -11,7 +11,7 @@ const mapPlan = (raw: RawPlan): Plan => {
     title_en: (detail.title_en ?? '') as string,
     title_tr: (detail.title_tr ?? '') as string,
     focus_area: ((detail.focus_area ?? raw.focus_area ?? 'full_body') as FocusArea),
-    difficulty: ((detail.difficulty ?? raw.level ?? 'beginner') as Level),
+    difficulty: (((detail.difficulty as string | undefined)?.toLowerCase() ?? (raw.level as string | undefined)?.toLowerCase() ?? 'beginner') as Level),
     total_duration_min: (detail.total_duration_min ?? raw.duration ?? 0) as number,
     description_en: (detail.description_en ?? '') as string,
     description_tr: (detail.description_tr ?? '') as string,
