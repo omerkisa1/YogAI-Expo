@@ -189,3 +189,79 @@ export function rawLandmarkBoundsVisible(
   }
   return any ? { minX, maxX, minY, maxY } : null;
 }
+
+// ---------------------------------------------------------------------------
+// Front-camera mirror fix: ML Kit indexes landmarks from the image perspective,
+// not anatomically. On the front camera the image is mirrored, so the user's
+// RIGHT arm is seen on the LEFT side of the image and ML Kit labels it as LEFT
+// landmarks (11, 13, 15) instead of RIGHT (12, 14, 16).
+//
+// This swap corrects the index assignment so the analyzer receives
+// anatomically-correct landmark indices.
+// ---------------------------------------------------------------------------
+
+/** Paired left↔right landmark indices (MediaPipe / ML Kit 33-point model). */
+const MIRROR_SWAP_PAIRS: readonly [number, number][] = [
+  [1, 4],   // eye inner
+  [2, 5],   // eye
+  [3, 6],   // eye outer
+  [7, 8],   // ear
+  [9, 10],  // mouth
+  [11, 12], // shoulder
+  [13, 14], // elbow
+  [15, 16], // wrist
+  [17, 18], // pinky
+  [19, 20], // index finger
+  [21, 22], // thumb
+  [23, 24], // hip
+  [25, 26], // knee
+  [27, 28], // ankle
+  [29, 30], // heel
+  [31, 32], // foot index
+];
+
+/**
+ * Swap left↔right landmark **data** so that the index numbers become
+ * anatomically correct for the front (selfie) camera.
+ *
+ * Each landmark keeps its original `index` — only the x/y/z/visibility
+ * values are exchanged between paired indices.
+ *
+ * Call this BEFORE smoothing and analysis, ONLY for the front camera.
+ */
+export function mirrorSwapLandmarks(landmarks: LandmarkPoint[]): LandmarkPoint[] {
+  // Build index → landmark lookup
+  const byIndex = new Map<number, LandmarkPoint>();
+  for (const lm of landmarks) {
+    byIndex.set(lm.index, lm);
+  }
+
+  // Deep-copy so we don't mutate the originals
+  const swapped: LandmarkPoint[] = landmarks.map(lm => ({ ...lm }));
+  const swappedByIndex = new Map<number, LandmarkPoint>();
+  for (const lm of swapped) {
+    swappedByIndex.set(lm.index, lm);
+  }
+
+  for (const [leftIdx, rightIdx] of MIRROR_SWAP_PAIRS) {
+    const origLeft = byIndex.get(leftIdx);
+    const origRight = byIndex.get(rightIdx);
+    if (!origLeft || !origRight) continue;
+
+    const sLeft = swappedByIndex.get(leftIdx)!;
+    const sRight = swappedByIndex.get(rightIdx)!;
+
+    // Put right's data into left's slot and vice-versa
+    sLeft.x = origRight.x;
+    sLeft.y = origRight.y;
+    sLeft.z = origRight.z;
+    sLeft.visibility = origRight.visibility;
+
+    sRight.x = origLeft.x;
+    sRight.y = origLeft.y;
+    sRight.z = origLeft.z;
+    sRight.visibility = origLeft.visibility;
+  }
+
+  return swapped;
+}

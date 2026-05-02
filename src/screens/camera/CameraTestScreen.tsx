@@ -50,6 +50,7 @@ import { LandmarkSmoother, AccuracySmoother } from '@/lib/poseSmoothing';
 import {
   getPreviewContentExtent,
   landmarksFromDetector,
+  mirrorSwapLandmarks,
   rawLandmarkBounds,
   rawLandmarkBoundsVisible,
   POSE_LANDMARK_KEYS,
@@ -350,11 +351,18 @@ const CameraTestScreen = ({ navigation }: Props) => {
   ]);
 
   const onVisionPoseBundle = useRunOnJS((bundle: VisionPoseBundle) => {
+    // Front camera: ML Kit indexes L/R from image perspective, not anatomically.
+    // Swap left↔right landmark data so analyzer gets correct indices.
+    const anatomicalPoints =
+      bundle.points.length > 0 && bundle.isMirrored
+        ? mirrorSwapLandmarks(bundle.points)
+        : bundle.points;
+
     // Apply landmark EMA smoothing
     const smoothedPoints =
-      bundle.points.length > 0
-        ? landmarkSmootherRef.current.smooth(bundle.points)
-        : bundle.points;
+      anatomicalPoints.length > 0
+        ? landmarkSmootherRef.current.smooth(anatomicalPoints)
+        : anatomicalPoints;
 
     setLandmarks(smoothedPoints);
     setFrameInfo({
