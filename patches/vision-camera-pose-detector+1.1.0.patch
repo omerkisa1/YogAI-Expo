@@ -24,3 +24,39 @@ index d459077..a535ad6 100644
    }];
  }
  
+diff --git a/node_modules/vision-camera-pose-detector/lib/commonjs/index.js b/node_modules/vision-camera-pose-detector/lib/commonjs/index.js
+index c0e97ce..fe7a566 100644
+--- a/node_modules/vision-camera-pose-detector/lib/commonjs/index.js
++++ b/node_modules/vision-camera-pose-detector/lib/commonjs/index.js
+@@ -5,7 +5,7 @@ Object.defineProperty(exports, "__esModule", {
+ });
+ exports.detectPose = detectPose;
+ var _reactNativeVisionCamera = require("react-native-vision-camera");
+-const _detectPose = _reactNativeVisionCamera.VisionCameraProxy.getFrameProcessorPlugin('detectPose');
++const _detectPose = _reactNativeVisionCamera.VisionCameraProxy.initFrameProcessorPlugin('detectPose', {});
+ function detectPose(frame) {
+   'worklet';
+ 
+diff --git a/node_modules/vision-camera-pose-detector/lib/module/index.js b/node_modules/vision-camera-pose-detector/lib/module/index.js
+index 934030c..cf14125 100644
+--- a/node_modules/vision-camera-pose-detector/lib/module/index.js
++++ b/node_modules/vision-camera-pose-detector/lib/module/index.js
+@@ -1,5 +1,5 @@
+ import { VisionCameraProxy } from 'react-native-vision-camera';
+-const _detectPose = VisionCameraProxy.getFrameProcessorPlugin('detectPose');
++const _detectPose = VisionCameraProxy.initFrameProcessorPlugin('detectPose', {});
+ export function detectPose(frame) {
+   'worklet';
+ 
+diff --git a/node_modules/vision-camera-pose-detector/src/index.tsx b/node_modules/vision-camera-pose-detector/src/index.tsx
+index 921f353..e4505aa 100644
+--- a/node_modules/vision-camera-pose-detector/src/index.tsx
++++ b/node_modules/vision-camera-pose-detector/src/index.tsx
+@@ -1,6 +1,6 @@
+ import { VisionCameraProxy, type Frame } from 'react-native-vision-camera';
+ 
+-const _detectPose = VisionCameraProxy.getFrameProcessorPlugin('detectPose');
++const _detectPose = VisionCameraProxy.initFrameProcessorPlugin('detectPose', {});
+ 
+ type Landmark = {
+   x: number;
