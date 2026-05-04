@@ -1,6 +1,6 @@
 import api from '@/shared/api/axiosInstance';
-import type { Profile } from '@/shared/types/profile';
-import type { Goal, Injury, Level, AppLanguage } from '@/shared/types/plan';
+import type { Profile, Goal } from '@/shared/types/profile';
+import type { Injury, Level, AppLanguage } from '@/shared/types/plan';
 
 type ApiWrapper<T> = { status: number; message: string; data: T };
 

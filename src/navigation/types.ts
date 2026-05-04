@@ -23,6 +23,11 @@ export type RootStackParamList = {
       }
     | undefined;
   EditProfile: undefined;
+  /**
+   * Aktif antrenman. `accuracy` gönderimi: analiz edilebilir pozlarda Vision + kurallarla üretilen
+   * smoothing’li skorlardan **son ~5 saniyenin ortalaması** (throttle ~150ms); örnek yoksa son frame.
+   * Analiz edilemeyen pozlarda 0.
+   */
   TrainingSession: { planId: string; sessionId: string };
   CameraTest: undefined;
   TrainingSessionDetail: { sessionId: string };

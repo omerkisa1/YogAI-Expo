@@ -3,6 +3,8 @@ import {
   ActivityIndicator,
   Dimensions,
   LayoutChangeEvent,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -16,20 +18,19 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Camera,
-  runAtTargetFps,
   useCameraDevice,
   useCameraFormat,
   useCameraPermission,
-  useFrameProcessor,
 } from 'react-native-vision-camera';
 import type { Orientation } from 'react-native-vision-camera';
-import { useRunOnJS } from 'react-native-worklets-core';
-import { detectPose } from 'vision-camera-pose-detector';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import api from '@/shared/api/axiosInstance';
+import type { AnalyzablePoseMeta, YogaApiResponse } from '@/features/pose/analyzablePoseTypes';
+import { usePoseDetailAndRules, type RulesSourceUi } from '@/features/pose/usePoseDetailAndRules';
+import { usePoseVisionPipeline } from '@/features/pose/usePoseVisionPipeline';
 import Button from '@/shared/components/Button';
 import {
   SkeletonOverlay,
@@ -37,74 +38,16 @@ import {
   computeCoverCropTransform,
 } from '@/shared/components/SkeletonOverlay';
 import type { RootStackParamList } from '@/navigation/types';
-import {
-  analyzePoseClientSide,
-  RULE_TRIANGLE_VISIBILITY,
-  type AnalyzeResult,
-  type LandmarkPoint,
-  parseLandmarkRules,
-  type LandmarkRule,
-} from '@/lib/poseAnalyzer';
-import { getFallbackRulesForPose } from '@/lib/fallbackPoseRules';
-import { LandmarkSmoother, AccuracySmoother } from '@/lib/poseSmoothing';
-import {
-  getPreviewContentExtent,
-  landmarksFromDetector,
-  mirrorSwapLandmarks,
-  rawLandmarkBounds,
-  rawLandmarkBoundsVisible,
-  POSE_LANDMARK_KEYS,
-} from '@/lib/poseLandmarks';
-import {
-  logPoseDiagnostics,
-  type VisionPoseBundle,
-} from '@/lib/poseDiagnosticsLog';
+import { RULE_TRIANGLE_VISIBILITY, type AnalyzeResult, type LandmarkPoint } from '@/lib/poseAnalyzer';
+import { filterAnalyzablePosesForUser } from '@/lib/analyzablePoseFilters';
+import { shouldWarnFullBodyLandmarks } from '@/lib/poseVisibilityGuards';
+import { getPreviewContentExtent, POSE_LANDMARK_KEYS } from '@/lib/poseLandmarks';
+import type { VisionPoseBundle } from '@/lib/poseDiagnosticsLog';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CameraTest'>;
-
-type AnalyzablePose = {
-  pose_id: string;
-  name_en: string;
-  name_tr: string;
-  difficulty: number;
-  is_analyzable: boolean;
-  instructions_en: string;
-  instructions_tr: string;
-  category: string;
-  landmark_rules?: unknown;
-  landmarkRules?: unknown;
-};
-
-type AnalyzablePoseMeta = {
-  pose_id: string;
-  name_en: string;
-  name_tr: string;
-  difficulty: number;
-  is_analyzable: boolean;
-};
-
-type ApiResponse<T> = {
-  status: number;
-  message: string;
-  data: T;
-};
-
-type RulesSourceUiPhase = 'idle' | 'loading' | 'error' | 'ready';
-
-type RulesSourceUi = {
-  phase: RulesSourceUiPhase;
-  origin: 'api' | 'fallback' | 'none';
-  count: number;
-};
-
-const RULES_SOURCE_UI_INITIAL: RulesSourceUi = {
-  phase: 'idle',
-  origin: 'none',
-  count: 0,
-};
 
 function RulesSourceBanner({ state }: { state: RulesSourceUi }) {
   if (state.phase === 'idle') return null;
@@ -171,15 +114,13 @@ function RulesSourceBanner({ state }: { state: RulesSourceUi }) {
 type ScreenState = 'pose_selection' | 'active' | 'completed';
 
 const POSE_DURATION = 30;
-const ANALYZE_THROTTLE_MS = 150;
-const ML_TARGET_FPS = 10;
 const VISIBILITY_DEBUG_THRESHOLD = RULE_TRIANGLE_VISIBILITY;
-const HIP_VISIBILITY_FULL_BODY_THRESHOLD = 0.5;
 
 /** Metro’da `[YogAI.Pose]` ile filtrele. Release + fiziksel cihaz: `.env` içine `EXPO_PUBLIC_POSE_VERBOSE_LOG=1` */
 const ENABLE_POSE_CONSOLE_LOG =
   __DEV__ || process.env.EXPO_PUBLIC_POSE_VERBOSE_LOG === '1';
-const POSE_LOG_INTERVAL_MS = 600;
+/** rulesOrigin banner: yalnızca DEV veya EXPO_PUBLIC_POSE_VERBOSE_LOG */
+const SHOW_VERBOSE_RULES_BANNER = ENABLE_POSE_CONSOLE_LOG;
 
 const formatTime = (seconds: number): string => {
   const m = Math.floor(seconds / 60);
@@ -245,117 +186,101 @@ const CameraTestScreen = ({ navigation }: Props) => {
   /** DEV: toggle between cover / contain for quick visual testing */
   const [devResizeMode, setDevResizeMode] = useState<'cover' | 'contain'>('cover');
 
-  const rulesRef = useRef<LandmarkRule[]>([]);
-  const lastAnalyzeAtRef = useRef(0);
-  const lastResultRef = useRef<AnalyzeResult | null>(null);
-  const fpsCountRef = useRef(0);
-  const fpsLastTickRef = useRef(Date.now());
-  const fpsDisplayRef = useRef(0);
-  const lastPoseLogAtRef = useRef(0);
+  const posesQuery = useQuery<AnalyzablePoseMeta[]>({
+    queryKey: ['analyzable-poses'],
+    queryFn: async () => {
+      const res = await api.get<YogaApiResponse<AnalyzablePoseMeta[]>>('/api/v1/yoga/poses/analyzable');
+      return res.data.data;
+    },
+  });
+
+  const userPoses = useMemo(
+    () => filterAnalyzablePosesForUser(posesQuery.data ?? []),
+    [posesQuery.data],
+  );
+
+  useEffect(() => {
+    if (selectedPoseId && !userPoses.some(p => p.pose_id === selectedPoseId)) {
+      setSelectedPoseId(null);
+    }
+  }, [userPoses, selectedPoseId]);
+
+  const {
+    selectedPose,
+    isPoseDetailLoading,
+    rulesRef,
+    rulesOriginRef,
+    rulesSourceUi,
+  } = usePoseDetailAndRules(selectedPoseId);
+
+  const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('front');
+  /** Önizleme: 1 = tam kadraj; <1 = daha “uzak” (küçük görüntü). ML tam çözünürlükte kalır. */
+  const [previewScale, setPreviewScale] = useState<number>(1);
+  const [instructionCardWidth, setInstructionCardWidth] = useState(
+    () => Dimensions.get('window').width - spacing.base * 2,
+  );
+  const [instructionPageIndex, setInstructionPageIndex] = useState(0);
+  const [showPoseRuleDetails, setShowPoseRuleDetails] = useState(false);
+
+  const debugFrameCountRef = useRef(0);
+  const DEBUG_MAX_FRAMES = 10;
 
   const overlayLayoutRef = useRef({ w: 0, h: 0 });
   const selectedPoseIdRef = useRef<string | null>(null);
   const formatVideoRef = useRef<{ vw: number; vh: number } | null>(null);
   const devResizeModeRef = useRef<'cover' | 'contain'>('cover');
-  const rulesOriginRef = useRef<'api' | 'fallback' | 'none'>('none');
-  const [rulesSourceUi, setRulesSourceUi] = useState<RulesSourceUi>(RULES_SOURCE_UI_INITIAL);
-  const fallbackRulesWarnedRef = useRef<Set<string>>(new Set());
-  const landmarkSmootherRef = useRef(new LandmarkSmoother(0.3));
-  const accuracySmootherRef = useRef(new AccuracySmoother(8));
-  const debugFrameCountRef = useRef(0);
-  const DEBUG_MAX_FRAMES = 10;
 
-  const posesQuery = useQuery<AnalyzablePoseMeta[]>({
-    queryKey: ['analyzable-poses'],
-    queryFn: async () => {
-      const res = await api.get<ApiResponse<AnalyzablePoseMeta[]>>('/api/v1/yoga/poses/analyzable');
-      return res.data.data;
-    },
-  });
+  const onDevAnalyzeFrame = useCallback(
+    (payload: {
+      bundle: VisionPoseBundle;
+      smoothedPoints: LandmarkPoint[];
+      analyze: AnalyzeResult;
+    }) => {
+      if (!__DEV__) return;
+      if (debugFrameCountRef.current >= DEBUG_MAX_FRAMES) return;
+      debugFrameCountRef.current++;
+      const fc = debugFrameCountRef.current;
+      const { bundle, smoothedPoints, analyze: analyzeJustComputed } = payload;
 
-  const poseDetailQuery = useQuery<AnalyzablePose>({
-    queryKey: ['pose-detail', selectedPoseId],
-    queryFn: async () => {
-      const res = await api.get<ApiResponse<AnalyzablePose>>(`/api/v1/yoga/poses/${selectedPoseId}`);
-      return res.data.data;
-    },
-    enabled: !!selectedPoseId,
-  });
+      const pick = (pts: LandmarkPoint[], idx: number) =>
+        pts.find(l => l.index === idx);
+      const fmt = (p: LandmarkPoint | undefined) =>
+        p
+          ? `x=${p.x.toFixed(4)} y=${p.y.toFixed(4)} vis=${p.visibility.toFixed(3)}`
+          : 'N/A';
 
-  const selectedPose = poseDetailQuery.data;
+      const rawPts = bundle.points;
+      console.log(`\n[YogAI.Debug] Frame ${fc}/${DEBUG_MAX_FRAMES}`);
+      console.log(`  Raw  R.shoulder(12): ${fmt(pick(rawPts, 12))}`);
+      console.log(`  Raw  R.elbow(14):    ${fmt(pick(rawPts, 14))}`);
+      console.log(`  Raw  R.wrist(16):    ${fmt(pick(rawPts, 16))}`);
+      console.log(`  Raw  R.hip(24):      ${fmt(pick(rawPts, 24))}`);
+      console.log(`  Smooth R.shoulder:   ${fmt(pick(smoothedPoints, 12))}`);
+      console.log(`  Smooth R.elbow:      ${fmt(pick(smoothedPoints, 14))}`);
 
-  useEffect(() => {
-    if (!selectedPoseId) {
-      rulesRef.current = [];
-      rulesOriginRef.current = 'none';
-      setRulesSourceUi(RULES_SOURCE_UI_INITIAL);
-      return;
-    }
+      analyzeJustComputed.rules.forEach(r => {
+        console.log(
+          `  Rule "${r.ruleId}": angle=${r.angleDegrees.toFixed(1)}° [${r.angleMin}–${r.angleMax}] score=${r.scorePercent.toFixed(0)}% status=${r.status}`,
+        );
+      });
+      console.log(`  OVERALL: ${analyzeJustComputed.accuracyPercent.toFixed(1)}%`);
 
-    if (poseDetailQuery.isError) {
-      rulesRef.current = [];
-      rulesOriginRef.current = 'none';
-      setRulesSourceUi({ phase: 'error', origin: 'none', count: 0 });
-      return;
-    }
-
-    if (!selectedPose) {
-      rulesRef.current = [];
-      rulesOriginRef.current = 'none';
-      setRulesSourceUi({ phase: 'loading', origin: 'none', count: 0 });
-      return;
-    }
-
-    const parsed = parseLandmarkRules(
-      selectedPose.landmark_rules ?? selectedPose.landmarkRules,
-    );
-
-    let rules = parsed;
-    let origin: 'api' | 'fallback' | 'none' = 'none';
-
-    if (parsed.length > 0) {
-      origin = 'api';
-    } else {
-      const fb = getFallbackRulesForPose(selectedPoseId);
-      if (fb.length > 0) {
-        rules = fb;
-        origin = 'fallback';
-        if (
-          __DEV__ &&
-          !fallbackRulesWarnedRef.current.has(selectedPoseId)
-        ) {
-          fallbackRulesWarnedRef.current.add(selectedPoseId);
-          console.warn(
-            `[YogAI.Pose] landmark_rules API'de yok — "${selectedPoseId}" için yerel test kuralları kullanılıyor.`,
-          );
-        }
+      if (fc === DEBUG_MAX_FRAMES) {
+        console.log('\n[YogAI.Debug] 10 frame dump complete. Debug logging stopped.');
       }
-    }
-
-    rulesRef.current = rules;
-    rulesOriginRef.current = origin;
-    setRulesSourceUi({ phase: 'ready', origin, count: rules.length });
-  }, [
-    selectedPose?.landmark_rules,
-    selectedPose?.landmarkRules,
-    selectedPoseId,
-    selectedPose,
-    poseDetailQuery.isError,
-  ]);
+    },
+    [],
+  );
 
   useEffect(() => {
     selectedPoseIdRef.current = selectedPoseId;
-    // Reset smoothers when pose changes
-    landmarkSmootherRef.current.reset();
-    accuracySmootherRef.current.reset();
-    debugFrameCountRef.current = 0;
   }, [selectedPoseId]);
 
   useEffect(() => {
     devResizeModeRef.current = devResizeMode;
   }, [devResizeMode]);
 
-  const device = useCameraDevice('front');
+  const device = useCameraDevice(cameraFacing);
   const screen = Dimensions.get('window');
   const format = useCameraFormat(device, [
     { fps: 30 },
@@ -370,6 +295,27 @@ const CameraTestScreen = ({ navigation }: Props) => {
       };
     }
   }, [format]);
+
+  const { frameProcessor, lastResultRef, resetSmoothers, fpsCountRef } =
+    usePoseVisionPipeline({
+      rulesRef,
+      rulesOriginRef,
+      selectedPoseIdRef,
+      devResizeModeRef,
+      overlayLayoutRef,
+      formatVideoRef,
+      enablePoseConsoleLog: ENABLE_POSE_CONSOLE_LOG,
+      setLandmarks,
+      setFrameInfo,
+      setAnalyzeResult,
+      setFps,
+      onDevAnalyzeFrame: __DEV__ ? onDevAnalyzeFrame : undefined,
+    });
+
+  useEffect(() => {
+    debugFrameCountRef.current = 0;
+    resetSmoothers();
+  }, [selectedPoseId, resetSmoothers]);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -451,177 +397,9 @@ const CameraTestScreen = ({ navigation }: Props) => {
     overlaySize.height,
   ]);
 
-  const showHipVisibilityWarning = useMemo(() => {
-    if (landmarks.length === 0) return false;
-    const lHip = landmarks.find(p => p.index === 23);
-    const rHip = landmarks.find(p => p.index === 24);
-    if (!lHip || !rHip) return false;
-    return (
-      lHip.visibility < HIP_VISIBILITY_FULL_BODY_THRESHOLD ||
-      rHip.visibility < HIP_VISIBILITY_FULL_BODY_THRESHOLD
-    );
-  }, [landmarks]);
-
-  const onVisionPoseBundle = useRunOnJS((bundle: VisionPoseBundle) => {
-    // Front camera: ML Kit indexes L/R from image perspective, not anatomically.
-    // Swap left↔right landmark data so analyzer gets correct indices.
-    const anatomicalPoints =
-      bundle.points.length > 0 && bundle.isMirrored
-        ? mirrorSwapLandmarks(bundle.points)
-        : bundle.points;
-
-    // Apply landmark EMA smoothing
-    const smoothedPoints =
-      anatomicalPoints.length > 0
-        ? landmarkSmootherRef.current.smooth(anatomicalPoints)
-        : anatomicalPoints;
-
-    setLandmarks(smoothedPoints);
-    setFrameInfo({
-      w: bundle.frameW,
-      h: bundle.frameH,
-      orientation: bundle.orientation,
-      isMirrored: bundle.isMirrored,
-      rawBounds: bundle.rawBounds,
-    });
-
-    const now = Date.now();
-    fpsCountRef.current += 1;
-    if (now - fpsLastTickRef.current >= 1000) {
-      fpsDisplayRef.current = fpsCountRef.current;
-      setFps(fpsCountRef.current);
-      fpsCountRef.current = 0;
-      fpsLastTickRef.current = now;
-    }
-
-    const rules = rulesRef.current;
-    let analyzeJustComputed: AnalyzeResult | null = null;
-
-    if (smoothedPoints.length === 0 || rules.length === 0) {
-      setAnalyzeResult(null);
-      lastResultRef.current = null;
-    } else if (now - lastAnalyzeAtRef.current >= ANALYZE_THROTTLE_MS) {
-      lastAnalyzeAtRef.current = now;
-      const rawResult = analyzePoseClientSide(rules, smoothedPoints);
-      // Apply accuracy smoothing (8-frame moving average)
-      rawResult.accuracyPercent = accuracySmootherRef.current.smooth(
-        rawResult.accuracyPercent,
-      );
-      analyzeJustComputed = rawResult;
-      lastResultRef.current = analyzeJustComputed;
-      setAnalyzeResult(analyzeJustComputed);
-    }
-
-    if (
-      ENABLE_POSE_CONSOLE_LOG &&
-      now - lastPoseLogAtRef.current >= POSE_LOG_INTERVAL_MS
-    ) {
-      lastPoseLogAtRef.current = now;
-      const fv = formatVideoRef.current;
-      logPoseDiagnostics({
-        bundle,
-        overlayW: overlayLayoutRef.current.w,
-        overlayH: overlayLayoutRef.current.h,
-        resizeMode: devResizeModeRef.current,
-        poseId: selectedPoseIdRef.current,
-        rulesCount: rules.length,
-        rulesOrigin: rulesOriginRef.current,
-        formatVideoW: fv?.vw ?? null,
-        formatVideoH: fv?.vh ?? null,
-        analyze: analyzeJustComputed ?? lastResultRef.current,
-        fps: fpsDisplayRef.current,
-      });
-    }
-
-    // === 10-FRAME DEBUG DUMP (DEV only) ===
-    if (
-      __DEV__ &&
-      debugFrameCountRef.current < DEBUG_MAX_FRAMES &&
-      analyzeJustComputed
-    ) {
-      debugFrameCountRef.current++;
-      const fc = debugFrameCountRef.current;
-
-      const pick = (pts: LandmarkPoint[], idx: number) =>
-        pts.find(l => l.index === idx);
-      const fmt = (p: LandmarkPoint | undefined) =>
-        p
-          ? `x=${p.x.toFixed(4)} y=${p.y.toFixed(4)} vis=${p.visibility.toFixed(3)}`
-          : 'N/A';
-
-      const rawPts = bundle.points;
-      const rShoulder = pick(rawPts, 12);
-      const rElbow = pick(rawPts, 14);
-      const rWrist = pick(rawPts, 16);
-      const rHip = pick(rawPts, 24);
-
-      const sRShoulder = pick(smoothedPoints, 12);
-      const sRElbow = pick(smoothedPoints, 14);
-
-      console.log(`\n[YogAI.Debug] Frame ${fc}/${DEBUG_MAX_FRAMES}`);
-      console.log(`  Raw  R.shoulder(12): ${fmt(rShoulder)}`);
-      console.log(`  Raw  R.elbow(14):    ${fmt(rElbow)}`);
-      console.log(`  Raw  R.wrist(16):    ${fmt(rWrist)}`);
-      console.log(`  Raw  R.hip(24):      ${fmt(rHip)}`);
-      console.log(`  Smooth R.shoulder:   ${fmt(sRShoulder)}`);
-      console.log(`  Smooth R.elbow:      ${fmt(sRElbow)}`);
-
-      analyzeJustComputed.rules.forEach(r => {
-        console.log(
-          `  Rule "${r.ruleId}": angle=${r.angleDegrees.toFixed(1)}° [${r.angleMin}–${r.angleMax}] score=${r.scorePercent.toFixed(0)}% status=${r.status}`,
-        );
-      });
-      console.log(
-        `  OVERALL: ${analyzeJustComputed.accuracyPercent.toFixed(1)}%`,
-      );
-
-      if (fc === DEBUG_MAX_FRAMES) {
-        console.log(
-          '\n[YogAI.Debug] 10 frame dump complete. Debug logging stopped.',
-        );
-      }
-    }
-  }, []);
-
-  const frameProcessor = useFrameProcessor(
-    frame => {
-      'worklet';
-      runAtTargetFps(ML_TARGET_FPS, () => {
-        'worklet';
-        const pose = detectPose(frame);
-        if (pose == null) {
-          onVisionPoseBundle({
-            points: [],
-            frameW: frame.width,
-            frameH: frame.height,
-            orientation: frame.orientation,
-            isMirrored: frame.isMirrored,
-            rawBounds: null,
-            rawBoundsVisible: null,
-          });
-          return;
-        }
-        const bounds = rawLandmarkBounds(pose);
-        const boundsVisible = rawLandmarkBoundsVisible(pose, 0.5);
-        const mapped = landmarksFromDetector(
-          pose,
-          frame.width,
-          frame.height,
-          frame.orientation,
-          /* flipXForAnalysis */ false,
-        );
-        onVisionPoseBundle({
-          points: mapped,
-          frameW: frame.width,
-          frameH: frame.height,
-          orientation: frame.orientation,
-          isMirrored: frame.isMirrored,
-          rawBounds: bounds,
-          rawBoundsVisible: boundsVisible,
-        });
-      });
-    },
-    [onVisionPoseBundle],
+  const showFullBodyWarning = useMemo(
+    () => shouldWarnFullBodyLandmarks(landmarks),
+    [landmarks],
   );
 
   const isAnalyzing = screenState === 'active';
@@ -632,6 +410,8 @@ const CameraTestScreen = ({ navigation }: Props) => {
     setScreenState('active');
     setLandmarks([]);
     setAnalyzeResult(null);
+    resetSmoothers();
+    debugFrameCountRef.current = 0;
     lastResultRef.current = null;
     setCompletedAccuracy(null);
     setIsTimerActive(true);
@@ -639,6 +419,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
 
   const handleStop = () => {
     stopTimer();
+    resetSmoothers();
     setScreenState('pose_selection');
     setTimeLeft(POSE_DURATION);
     setLandmarks([]);
@@ -676,7 +457,9 @@ const CameraTestScreen = ({ navigation }: Props) => {
         <View style={styles.permissionContainer}>
           <MaterialCommunityIcons name="camera-off" size={64} color={colors.textMuted} />
           <Text style={styles.permissionTitle}>Kamera bulunamadı</Text>
-          <Text style={styles.permissionDesc}>Ön kamera bu cihazda kullanılamıyor.</Text>
+          <Text style={styles.permissionDesc}>
+            {cameraFacing === 'front' ? 'Ön kamera' : 'Arka kamera'} bu cihazda kullanılamıyor.
+          </Text>
           <Button
             title="Geri Dön"
             onPress={() => navigation.goBack()}
@@ -771,54 +554,97 @@ const CameraTestScreen = ({ navigation }: Props) => {
     return (
       <View style={styles.cameraFullScreen} onLayout={onCameraLayout}>
         <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-        <Camera
-          style={StyleSheet.absoluteFill}
-          device={device}
-          isActive={isAnalyzing}
-          format={format}
-          fps={30}
-          photo={false}
-          video={false}
-          audio={false}
-          enableBufferCompression={false}
-          frameProcessor={frameProcessor}
-          pixelFormat="yuv"
-          videoStabilizationMode="off"
-          outputOrientation="device"
-          resizeMode={devResizeMode}
-        />
-
-        {landmarks.length > 0 && overlaySize.width > 0 && (
-          <SkeletonOverlay
-            landmarks={landmarks}
-            mirror
-            width={overlaySize.width}
-            height={overlaySize.height}
-            cropTransform={coverCropTransform}
-            containFit={containFitTransform}
+        <View
+          style={[styles.cameraScaledWrap, { transform: [{ scale: previewScale }] }]}
+          pointerEvents="box-none"
+        >
+          <Camera
+            style={StyleSheet.absoluteFill}
+            device={device}
+            isActive={isAnalyzing}
+            format={format}
+            fps={30}
+            photo={false}
+            video={false}
+            audio={false}
+            enableBufferCompression={false}
+            frameProcessor={frameProcessor}
+            pixelFormat="yuv"
+            videoStabilizationMode="off"
+            outputOrientation="device"
+            resizeMode={devResizeMode}
           />
-        )}
 
-        <View style={[styles.fpsPill, { top: insets.top + spacing.sm }]}>
+          {landmarks.length > 0 && overlaySize.width > 0 && (
+            <SkeletonOverlay
+              landmarks={landmarks}
+              mirror
+              width={overlaySize.width}
+              height={overlaySize.height}
+              cropTransform={coverCropTransform}
+              containFit={containFitTransform}
+            />
+          )}
+        </View>
+
+        <View style={[styles.cameraControlsRow, { top: insets.top + spacing.sm }]}>
+          <TouchableOpacity
+            style={styles.cameraControlChip}
+            onPress={() => setCameraFacing(f => (f === 'front' ? 'back' : 'front'))}
+            accessibilityRole="button"
+            accessibilityLabel={cameraFacing === 'front' ? 'Arka kameraya geç' : 'Ön kameraya geç'}
+          >
+            <MaterialCommunityIcons name="camera-flip-outline" size={20} color={colors.textOnDark} />
+            <Text style={styles.cameraControlChipText}>
+              {cameraFacing === 'front' ? 'Ön' : 'Arka'}
+            </Text>
+          </TouchableOpacity>
+          <View style={styles.zoomChips}>
+            {[
+              { scale: 0.88, label: 'Uzak' },
+              { scale: 1, label: '1×' },
+              { scale: 1.06, label: 'Yakın' },
+            ].map(z => (
+              <TouchableOpacity
+                key={z.label}
+                style={[
+                  styles.zoomChip,
+                  previewScale === z.scale && styles.zoomChipActive,
+                ]}
+                onPress={() => setPreviewScale(z.scale)}
+                accessibilityRole="button"
+                accessibilityLabel={`Önizleme ${z.label}`}
+              >
+                <Text
+                  style={[
+                    styles.zoomChipText,
+                    previewScale === z.scale && styles.zoomChipTextActive,
+                  ]}
+                >
+                  {z.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={[styles.fpsPill, { top: insets.top + spacing.sm + 44 }]}>
           <Text style={styles.fpsText}>FPS: {fps}</Text>
         </View>
 
-        <View style={[styles.timerOverlay, { top: insets.top + spacing.sm + 44 }]}>
+        <View style={[styles.timerOverlay, { top: insets.top + spacing.sm + 88 }]}>
           <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
         </View>
 
-        {showHipVisibilityWarning && (
+        {showFullBodyWarning && (
           <View
-            style={[styles.hipWarningBanner, { top: insets.top + spacing.sm + 96 }]}
+            style={[styles.fullBodyWarningBanner, { top: insets.top + spacing.sm + 148 }]}
             accessibilityRole="alert"
           >
-            <MaterialCommunityIcons
-              name="arrow-expand-vertical"
-              size={22}
-              color={colors.textOnDark}
-            />
-            <Text style={styles.hipWarningText}>
-              Lütfen birkaç adım geri çekilin, tüm vücudunuz görünsün
+            <MaterialCommunityIcons name="arrow-expand-all" size={24} color="#1a1a1a" />
+            <Text style={styles.fullBodyWarningText}>
+              Kalça veya dizler net görünmüyor. Telefonu biraz uzaklaştırın veya tüm vücudu kadraja
+              alın.
             </Text>
           </View>
         )}
@@ -832,7 +658,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <RulesSourceBanner state={rulesSourceUi} />
+          {SHOW_VERBOSE_RULES_BANNER ? <RulesSourceBanner state={rulesSourceUi} /> : null}
           <View style={styles.accuracyPanel}>
             <Text style={styles.accuracyLabel}>Accuracy</Text>
             <Text style={[styles.accuracyPercent, { color: accTint }]}>
@@ -858,7 +684,25 @@ const CameraTestScreen = ({ navigation }: Props) => {
             )}
           </View>
 
-          {analyzeResult && analyzeResult.rules.length > 0 && (
+          {analyzeResult && analyzeResult.rules.length > 0 ? (
+            <TouchableOpacity
+              style={styles.ruleDetailsToggle}
+              onPress={() => setShowPoseRuleDetails(v => !v)}
+              accessibilityRole="button"
+              accessibilityLabel={showPoseRuleDetails ? 'Kural detaylarını gizle' : 'Kural detaylarını göster'}
+            >
+              <MaterialCommunityIcons
+                name={showPoseRuleDetails ? 'chevron-up' : 'chevron-down'}
+                size={22}
+                color={colors.text}
+              />
+              <Text style={styles.ruleDetailsToggleText}>
+                {showPoseRuleDetails ? 'Kural detaylarını gizle' : 'Kural detaylarını göster (geliştirici)'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {showPoseRuleDetails && analyzeResult && analyzeResult.rules.length > 0 && (
             <View style={styles.rulesCard}>
               {analyzeResult.rules.map(rule => {
                 const border =
@@ -998,9 +842,72 @@ const CameraTestScreen = ({ navigation }: Props) => {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.cameraPreviewPlaceholder}>
-          <MaterialCommunityIcons name="camera-outline" size={48} color={colors.textMuted} />
-          <Text style={styles.placeholderText}>Poz seçin ve başlatın</Text>
+        <View
+          style={styles.instructionCardOuter}
+          onLayout={e => {
+            const w = e.nativeEvent.layout.width;
+            if (w > 0) setInstructionCardWidth(w);
+          }}
+        >
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+              const w = instructionCardWidth || 1;
+              const ix = Math.round(e.nativeEvent.contentOffset.x / w);
+              setInstructionPageIndex(Math.min(1, Math.max(0, ix)));
+            }}
+          >
+            <View style={[styles.instructionPage, { width: instructionCardWidth }]}>
+              {!selectedPoseId ? (
+                <>
+                  <MaterialCommunityIcons name="gesture-tap" size={40} color={colors.textMuted} />
+                  <Text style={styles.instructionCardTitle}>Poz seçin</Text>
+                  <Text style={styles.instructionCardBody}>
+                    Aşağıdan bir poz seçerek talimatları burada göreceksin. Ardından kamerayı açıp
+                    pratik yapabilirsin.
+                  </Text>
+                </>
+              ) : isPoseDetailLoading ? (
+                <>
+                  <ActivityIndicator color={colors.primary} />
+                  <Text style={styles.instructionCardBody}>Talimatlar yükleniyor…</Text>
+                </>
+              ) : selectedPose ? (
+                <>
+                  <Text style={styles.instructionCardTitle}>
+                    {selectedPose.name_tr || selectedPose.name_en}
+                  </Text>
+                  <DifficultyDots level={selectedPose.difficulty} />
+                  {(selectedPose.instructions_tr || selectedPose.instructions_en) ? (
+                    <Text style={styles.instructionCardBodyFull}>
+                      {selectedPose.instructions_tr || selectedPose.instructions_en}
+                    </Text>
+                  ) : (
+                    <Text style={styles.instructionCardBody}>Bu poz için talimat metni yok.</Text>
+                  )}
+                </>
+              ) : (
+                <Text style={styles.instructionCardBody}>Poz detayı alınamadı.</Text>
+              )}
+            </View>
+            <View style={[styles.instructionPage, styles.motionPreviewPage, { width: instructionCardWidth }]}>
+              <MaterialCommunityIcons name="animation-play" size={40} color={colors.textMuted} />
+              <Text style={styles.motionPreviewTitle}>Hareket önizlemesi</Text>
+              <Text style={styles.motionPreviewHint}>
+                Yakında: GIF veya animasyon ile pozu buradan kaydırarak izleyebileceksin.
+              </Text>
+            </View>
+          </ScrollView>
+          <View style={styles.carouselDots}>
+            {[0, 1].map(i => (
+              <View
+                key={i}
+                style={[styles.carouselDot, instructionPageIndex === i && styles.carouselDotActive]}
+              />
+            ))}
+          </View>
         </View>
 
         <Text style={styles.sectionLabel}>Poz Seçin</Text>
@@ -1019,17 +926,17 @@ const CameraTestScreen = ({ navigation }: Props) => {
           </View>
         )}
 
-        {posesQuery.data && posesQuery.data.length === 0 && (
+        {!posesQuery.isLoading && userPoses.length === 0 && (
           <Text style={styles.emptyText}>Analiz edilebilir poz bulunamadı.</Text>
         )}
 
-        {posesQuery.data && posesQuery.data.length > 0 && (
+        {userPoses.length > 0 && (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.chipList}
           >
-            {posesQuery.data.map(pose => {
+            {userPoses.map(pose => {
               const isSelected = selectedPoseId === pose.pose_id;
               return (
                 <TouchableOpacity
@@ -1049,25 +956,11 @@ const CameraTestScreen = ({ navigation }: Props) => {
           </ScrollView>
         )}
 
-        {selectedPoseId ? <RulesSourceBanner state={rulesSourceUi} /> : null}
+        {selectedPoseId && SHOW_VERBOSE_RULES_BANNER ? (
+          <RulesSourceBanner state={rulesSourceUi} />
+        ) : null}
 
-        {selectedPose && (
-          <View style={styles.poseDetailCard}>
-            <View style={styles.poseDetailHeader}>
-              <Text style={styles.poseDetailName}>
-                {selectedPose.name_tr || selectedPose.name_en}
-              </Text>
-              <DifficultyDots level={selectedPose.difficulty} />
-            </View>
-            {(selectedPose.instructions_tr || selectedPose.instructions_en) ? (
-              <Text style={styles.poseDetailInstruction} numberOfLines={3}>
-                {selectedPose.instructions_tr || selectedPose.instructions_en}
-              </Text>
-            ) : null}
-          </View>
-        )}
-
-        {poseDetailQuery.isLoading && selectedPoseId && (
+        {isPoseDetailLoading && selectedPoseId && (
           <View style={styles.loadingRow}>
             <ActivityIndicator color={colors.primary} size="small" />
             <Text style={styles.loadingText}>Poz detayı yükleniyor...</Text>
@@ -1083,7 +976,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
           size="lg"
           fullWidth
           icon="camera-outline"
-          disabled={!selectedPoseId || poseDetailQuery.isLoading}
+          disabled={!selectedPoseId || isPoseDetailLoading}
           accessibilityLabel="Kamerayı aç ve antrenmanı başlat"
         />
       </View>
@@ -1125,20 +1018,124 @@ const styles = StyleSheet.create({
     padding: spacing.base,
     gap: spacing.base,
   },
-  cameraPreviewPlaceholder: {
-    width: '100%',
-    aspectRatio: 3 / 4,
+  instructionCardOuter: {
     borderRadius: radius.xl,
     backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  instructionPage: {
+    minHeight: 220,
+    padding: spacing.base,
+    gap: spacing.sm,
+    justifyContent: 'flex-start',
+  },
+  motionPreviewPage: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
+    backgroundColor: colors.surface,
   },
-  placeholderText: {
+  instructionCardTitle: {
+    ...typography.h4,
+    color: colors.text,
+  },
+  instructionCardBody: {
     ...typography.bodySm,
+    color: colors.textSecondary,
+    lineHeight: 22,
+  },
+  instructionCardBodyFull: {
+    ...typography.body,
+    color: colors.textSecondary,
+    lineHeight: 24,
+  },
+  motionPreviewTitle: {
+    ...typography.bodySmMedium,
+    color: colors.text,
+  },
+  motionPreviewHint: {
+    ...typography.caption,
     color: colors.textMuted,
+    textAlign: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  carouselDots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingBottom: spacing.sm,
+  },
+  carouselDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.border,
+  },
+  carouselDotActive: {
+    backgroundColor: colors.primary,
+    width: 14,
+  },
+  cameraScaledWrap: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  cameraControlsRow: {
+    position: 'absolute',
+    right: spacing.base,
+    left: spacing.base,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 2,
+  },
+  cameraControlChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+  },
+  cameraControlChipText: {
+    ...typography.captionMedium,
+    color: colors.textOnDark,
+  },
+  zoomChips: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  zoomChip: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  zoomChipActive: {
+    backgroundColor: 'rgba(45,139,94,0.85)',
+    borderColor: 'rgba(255,255,255,0.45)',
+  },
+  zoomChipText: {
+    ...typography.captionMedium,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  zoomChipTextActive: {
+    color: colors.textOnDark,
+  },
+  ruleDetailsToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: 'rgba(248,247,244,0.92)',
+    padding: spacing.sm,
+    borderRadius: radius.md,
+  },
+  ruleDetailsToggleText: {
+    ...typography.bodySmMedium,
+    color: colors.text,
+    flex: 1,
   },
   sectionLabel: {
     ...typography.h4,
@@ -1343,6 +1340,26 @@ const styles = StyleSheet.create({
   hipWarningText: {
     ...typography.bodySmMedium,
     color: colors.textOnDark,
+    flex: 1,
+    lineHeight: 20,
+  },
+  fullBodyWarningBanner: {
+    position: 'absolute',
+    left: spacing.base,
+    right: spacing.base,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: 'rgba(255, 224, 130, 0.95)',
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.md,
+    borderWidth: 2,
+    borderColor: 'rgba(200, 138, 0, 0.65)',
+  },
+  fullBodyWarningText: {
+    ...typography.bodySmMedium,
+    color: '#1a1a1a',
     flex: 1,
     lineHeight: 20,
   },
