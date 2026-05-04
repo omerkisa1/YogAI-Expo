@@ -349,8 +349,14 @@ const CameraTestScreen = ({ navigation }: Props) => {
     return () => stopTimer();
   }, [stopTimer]);
 
+  const previewScaleSafe = Math.max(previewScale, 0.05);
+  const previewInnerW =
+    overlaySize.width > 0 ? overlaySize.width / previewScaleSafe : 0;
+  const previewInnerH =
+    overlaySize.height > 0 ? overlaySize.height / previewScaleSafe : 0;
+
   const coverCropTransform = useMemo(() => {
-    if (devResizeMode !== 'cover' || !frameInfo || overlaySize.width <= 0) {
+    if (devResizeMode !== 'cover' || !frameInfo || previewInnerW <= 0) {
       return undefined;
     }
     const { contentW, contentH } = getPreviewContentExtent(
@@ -359,8 +365,8 @@ const CameraTestScreen = ({ navigation }: Props) => {
       frameInfo.orientation,
     );
     return computeCoverCropTransform(
-      overlaySize.width,
-      overlaySize.height,
+      previewInnerW,
+      previewInnerH,
       contentW,
       contentH,
     );
@@ -369,12 +375,12 @@ const CameraTestScreen = ({ navigation }: Props) => {
     frameInfo?.w,
     frameInfo?.h,
     frameInfo?.orientation,
-    overlaySize.width,
-    overlaySize.height,
+    previewInnerW,
+    previewInnerH,
   ]);
 
   const containFitTransform = useMemo(() => {
-    if (devResizeMode !== 'contain' || !frameInfo || overlaySize.width <= 0) {
+    if (devResizeMode !== 'contain' || !frameInfo || previewInnerW <= 0) {
       return undefined;
     }
     const { contentW, contentH } = getPreviewContentExtent(
@@ -383,8 +389,8 @@ const CameraTestScreen = ({ navigation }: Props) => {
       frameInfo.orientation,
     );
     return computeContainFitTransform(
-      overlaySize.width,
-      overlaySize.height,
+      previewInnerW,
+      previewInnerH,
       contentW,
       contentH,
     );
@@ -393,8 +399,8 @@ const CameraTestScreen = ({ navigation }: Props) => {
     frameInfo?.w,
     frameInfo?.h,
     frameInfo?.orientation,
-    overlaySize.width,
-    overlaySize.height,
+    previewInnerW,
+    previewInnerH,
   ]);
 
   const showFullBodyWarning = useMemo(
@@ -554,37 +560,50 @@ const CameraTestScreen = ({ navigation }: Props) => {
     return (
       <View style={styles.cameraFullScreen} onLayout={onCameraLayout}>
         <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-        <View
-          style={[styles.cameraScaledWrap, { transform: [{ scale: previewScale }] }]}
-          pointerEvents="box-none"
-        >
-          <Camera
-            style={StyleSheet.absoluteFill}
-            device={device}
-            isActive={isAnalyzing}
-            format={format}
-            fps={30}
-            photo={false}
-            video={false}
-            audio={false}
-            enableBufferCompression={false}
-            frameProcessor={frameProcessor}
-            pixelFormat="yuv"
-            videoStabilizationMode="off"
-            outputOrientation="device"
-            resizeMode={devResizeMode}
-          />
+        <View style={styles.cameraClip}>
+          {overlaySize.width > 0 && overlaySize.height > 0 ? (
+            <View
+              style={[
+                styles.cameraZoomInner,
+                {
+                  width: previewInnerW,
+                  height: previewInnerH,
+                  left: (overlaySize.width - previewInnerW) / 2,
+                  top: (overlaySize.height - previewInnerH) / 2,
+                  transform: [{ scale: previewScale }],
+                },
+              ]}
+              pointerEvents="box-none"
+            >
+              <Camera
+                style={StyleSheet.absoluteFill}
+                device={device}
+                isActive={isAnalyzing}
+                format={format}
+                fps={30}
+                photo={false}
+                video={false}
+                audio={false}
+                enableBufferCompression={false}
+                frameProcessor={frameProcessor}
+                pixelFormat="yuv"
+                videoStabilizationMode="off"
+                outputOrientation="device"
+                resizeMode={devResizeMode}
+              />
 
-          {landmarks.length > 0 && overlaySize.width > 0 && (
-            <SkeletonOverlay
-              landmarks={landmarks}
-              mirror
-              width={overlaySize.width}
-              height={overlaySize.height}
-              cropTransform={coverCropTransform}
-              containFit={containFitTransform}
-            />
-          )}
+              {landmarks.length > 0 && previewInnerW > 0 && (
+                <SkeletonOverlay
+                  landmarks={landmarks}
+                  mirror
+                  width={previewInnerW}
+                  height={previewInnerH}
+                  cropTransform={coverCropTransform}
+                  containFit={containFitTransform}
+                />
+              )}
+            </View>
+          ) : null}
         </View>
 
         <View style={[styles.cameraControlsRow, { top: insets.top + spacing.sm }]}>
@@ -1076,8 +1095,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     width: 14,
   },
-  cameraScaledWrap: {
+  cameraClip: {
     ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+  },
+  cameraZoomInner: {
+    position: 'absolute',
   },
   cameraControlsRow: {
     position: 'absolute',
