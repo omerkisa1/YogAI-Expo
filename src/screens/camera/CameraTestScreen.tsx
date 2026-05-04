@@ -92,6 +92,82 @@ type ApiResponse<T> = {
   data: T;
 };
 
+type RulesSourceUiPhase = 'idle' | 'loading' | 'error' | 'ready';
+
+type RulesSourceUi = {
+  phase: RulesSourceUiPhase;
+  origin: 'api' | 'fallback' | 'none';
+  count: number;
+};
+
+const RULES_SOURCE_UI_INITIAL: RulesSourceUi = {
+  phase: 'idle',
+  origin: 'none',
+  count: 0,
+};
+
+function RulesSourceBanner({ state }: { state: RulesSourceUi }) {
+  if (state.phase === 'idle') return null;
+
+  if (state.phase === 'loading') {
+    return (
+      <View style={[styles.rulesSourceBanner, styles.rulesSourceBannerMuted]}>
+        <MaterialCommunityIcons name="timer-sand" size={18} color={colors.textSecondary} />
+        <Text style={styles.rulesSourceBannerText}>Kurallar: poz detayı yükleniyor…</Text>
+      </View>
+    );
+  }
+
+  if (state.phase === 'error') {
+    return (
+      <View style={[styles.rulesSourceBanner, styles.rulesSourceBannerError]}>
+        <MaterialCommunityIcons name="cloud-alert-outline" size={18} color={colors.error} />
+        <Text style={[styles.rulesSourceBannerText, { color: colors.error }]}>
+          Kurallar: poz detayı alınamadı
+        </Text>
+      </View>
+    );
+  }
+
+  const { origin, count } = state;
+  const isApi = origin === 'api';
+  const isFallback = origin === 'fallback';
+
+  return (
+    <View
+      style={[
+        styles.rulesSourceBanner,
+        isApi && styles.rulesSourceBannerApi,
+        isFallback && styles.rulesSourceBannerWarn,
+        !isApi && !isFallback && styles.rulesSourceBannerMuted,
+      ]}
+      accessibilityLabel={`Poz kuralları: ${isApi ? 'API' : isFallback ? 'yerel yedek' : 'tanımsız'}, ${count} kural`}
+    >
+      <MaterialCommunityIcons
+        name={isApi ? 'cloud-check-outline' : isFallback ? 'database-alert-outline' : 'help-circle-outline'}
+        size={18}
+        color={isApi ? colors.success : isFallback ? colors.warning : colors.textSecondary}
+      />
+      <View style={styles.rulesSourceBannerTextCol}>
+        <Text style={styles.rulesSourceBannerTitle}>
+          Kurallar:{' '}
+          <Text style={styles.rulesSourceBannerMono}>
+            rulesOrigin={isApi ? 'api' : isFallback ? 'fallback' : 'none'}
+          </Text>
+          {` · ${count} kural`}
+        </Text>
+        <Text style={styles.rulesSourceBannerHint}>
+          {isApi
+            ? 'Backend landmark_rules kullanılıyor.'
+            : isFallback
+              ? "API'de kural yok; yerel test kuralları kullanılıyor."
+              : 'Bu poz için ne API ne yerel kural tanımlı.'}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 type ScreenState = 'pose_selection' | 'active' | 'completed';
 
 const POSE_DURATION = 30;
@@ -182,6 +258,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
   const formatVideoRef = useRef<{ vw: number; vh: number } | null>(null);
   const devResizeModeRef = useRef<'cover' | 'contain'>('cover');
   const rulesOriginRef = useRef<'api' | 'fallback' | 'none'>('none');
+  const [rulesSourceUi, setRulesSourceUi] = useState<RulesSourceUi>(RULES_SOURCE_UI_INITIAL);
   const fallbackRulesWarnedRef = useRef<Set<string>>(new Set());
   const landmarkSmootherRef = useRef(new LandmarkSmoother(0.3));
   const accuracySmootherRef = useRef(new AccuracySmoother(8));
@@ -208,8 +285,29 @@ const CameraTestScreen = ({ navigation }: Props) => {
   const selectedPose = poseDetailQuery.data;
 
   useEffect(() => {
+    if (!selectedPoseId) {
+      rulesRef.current = [];
+      rulesOriginRef.current = 'none';
+      setRulesSourceUi(RULES_SOURCE_UI_INITIAL);
+      return;
+    }
+
+    if (poseDetailQuery.isError) {
+      rulesRef.current = [];
+      rulesOriginRef.current = 'none';
+      setRulesSourceUi({ phase: 'error', origin: 'none', count: 0 });
+      return;
+    }
+
+    if (!selectedPose) {
+      rulesRef.current = [];
+      rulesOriginRef.current = 'none';
+      setRulesSourceUi({ phase: 'loading', origin: 'none', count: 0 });
+      return;
+    }
+
     const parsed = parseLandmarkRules(
-      selectedPose?.landmark_rules ?? selectedPose?.landmarkRules,
+      selectedPose.landmark_rules ?? selectedPose.landmarkRules,
     );
 
     let rules = parsed;
@@ -217,7 +315,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
 
     if (parsed.length > 0) {
       origin = 'api';
-    } else if (selectedPoseId) {
+    } else {
       const fb = getFallbackRulesForPose(selectedPoseId);
       if (fb.length > 0) {
         rules = fb;
@@ -236,11 +334,13 @@ const CameraTestScreen = ({ navigation }: Props) => {
 
     rulesRef.current = rules;
     rulesOriginRef.current = origin;
+    setRulesSourceUi({ phase: 'ready', origin, count: rules.length });
   }, [
     selectedPose?.landmark_rules,
     selectedPose?.landmarkRules,
     selectedPoseId,
     selectedPose,
+    poseDetailQuery.isError,
   ]);
 
   useEffect(() => {
@@ -732,6 +832,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
+          <RulesSourceBanner state={rulesSourceUi} />
           <View style={styles.accuracyPanel}>
             <Text style={styles.accuracyLabel}>Accuracy</Text>
             <Text style={[styles.accuracyPercent, { color: accTint }]}>
@@ -948,6 +1049,8 @@ const CameraTestScreen = ({ navigation }: Props) => {
           </ScrollView>
         )}
 
+        {selectedPoseId ? <RulesSourceBanner state={rulesSourceUi} /> : null}
+
         {selectedPose && (
           <View style={styles.poseDetailCard}>
             <View style={styles.poseDetailHeader}>
@@ -1108,6 +1211,52 @@ const styles = StyleSheet.create({
     ...typography.bodySm,
     color: colors.textSecondary,
     lineHeight: 20,
+  },
+  rulesSourceBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    padding: spacing.base,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+  },
+  rulesSourceBannerApi: {
+    backgroundColor: 'rgba(45, 139, 94, 0.12)',
+    borderColor: 'rgba(45, 139, 94, 0.35)',
+  },
+  rulesSourceBannerWarn: {
+    backgroundColor: 'rgba(200, 138, 0, 0.14)',
+    borderColor: 'rgba(200, 138, 0, 0.45)',
+  },
+  rulesSourceBannerMuted: {
+    backgroundColor: colors.surfaceElevated,
+    borderColor: colors.borderLight,
+  },
+  rulesSourceBannerError: {
+    backgroundColor: 'rgba(200, 60, 60, 0.08)',
+    borderColor: 'rgba(200, 60, 60, 0.35)',
+  },
+  rulesSourceBannerTextCol: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  rulesSourceBannerTitle: {
+    ...typography.bodySmMedium,
+    color: colors.text,
+  },
+  rulesSourceBannerMono: {
+    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+    fontSize: 12,
+  },
+  rulesSourceBannerHint: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  rulesSourceBannerText: {
+    ...typography.bodySm,
+    color: colors.textSecondary,
+    flex: 1,
   },
   difficultyRow: {
     flexDirection: 'row',
