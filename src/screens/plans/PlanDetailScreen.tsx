@@ -124,6 +124,8 @@ const ExerciseStepPage = ({
   );
 };
 
+const ExerciseItem = ExerciseStepPage;
+
 type ExerciseCarouselProps = {
   exercises: Exercise[];
   difficultyBadge: string;
