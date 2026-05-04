@@ -1,6 +1,16 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
+import type { NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Animated, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import {
+  FlatList,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -10,7 +20,6 @@ import { usePlan } from '@/features/plans/hooks/usePlan';
 import { useStartTrainingSession } from '@/features/training/hooks/useTraining';
 import AppModal from '@/shared/components/AppModal';
 import Button from '@/shared/components/Button';
-import Card from '@/shared/components/Card';
 import ErrorView from '@/shared/components/ErrorView';
 import LoadingView from '@/shared/components/LoadingView';
 import Touchable from '@/shared/components/Touchable';
@@ -32,45 +41,156 @@ const focusLabelMap: Record<string, string> = { full_body: 'Tam Vücut', legs: '
 const categoryLabelMap: Record<string, string> = { standing: 'Standing', seated: 'Seated', prone: 'Prone', supine: 'Supine', inversion: 'Inversion' };
 const difficultyToScale = (level: Plan['difficulty']) => { if (level === 'beginner') return 1; if (level === 'intermediate') return 3; return 5; };
 
-const ExerciseItem = ({ exercise, index, expanded, onToggle, animatedValue, difficultyBadge }: {
-  exercise: Exercise; index: number; expanded: boolean; onToggle: () => void; animatedValue: Animated.Value; difficultyBadge: string;
-}) => {
-  const animatedHeight = animatedValue.interpolate({ inputRange: [0, 1], outputRange: [0, 180] });
-  const animatedOpacity = animatedValue.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
+const EXERCISE_CAROUSEL_HEIGHT = 520;
+
+type ExerciseStepPageProps = {
+  exercise: Exercise;
+  index: number;
+  total: number;
+  pageWidth: number;
+  difficultyBadge: string;
+};
+
+const ExerciseStepPage = ({
+  exercise,
+  index,
+  total,
+  pageWidth,
+  difficultyBadge,
+}: ExerciseStepPageProps) => {
   const categoryColor = categoryColorMap[exercise.category] ?? colors.textMuted;
   const categoryLabel = categoryLabelMap[exercise.category] ?? (exercise.category || 'unknown');
-
   return (
-    <Touchable onPress={onToggle} style={styles.exercisePressable} borderRadius={radius.lg} accessibilityRole="button" accessibilityLabel={`${exercise.name_tr || exercise.name_en} açılır kart`}>
-      <Card variant="default" style={[styles.exerciseCard, styles.exerciseCardAccent, { borderLeftColor: categoryColor }]}>
-        <View style={styles.exerciseHeaderRow}>
-          <View style={styles.exerciseNumberBadge}><Text style={styles.exerciseNumber}>{index + 1}</Text></View>
-          <View style={styles.exerciseNameWrap}>
-            <Text style={styles.exerciseTitle}>{exercise.name_tr || exercise.name_en}</Text>
-            <Text style={styles.exerciseSubtitle}>{exercise.name_en}</Text>
-          </View>
+    <View style={[styles.stepPage, { width: pageWidth }]} accessibilityRole="summary">
+      <View style={styles.stepPreview}>
+        <LinearGradient
+          colors={[`${categoryColor}44`, colors.surfaceElevated]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <MaterialCommunityIcons name="yoga" size={56} color={categoryColor} />
+        <Text style={styles.stepPreviewLabel}>Hareket önizlemesi</Text>
+        <Text style={styles.stepPreviewHint} numberOfLines={2}>
+          Yakında: animasyon / görsel ile adım burada gösterilecek
+        </Text>
+      </View>
+      <View style={styles.stepMetaBar}>
+        <View style={styles.exerciseNumberBadge}>
+          <Text style={styles.exerciseNumber}>{index + 1}</Text>
         </View>
+        <Text style={styles.stepCounterText}>
+          Adım {index + 1} / {total}
+        </Text>
+      </View>
+      <View style={styles.stepBody}>
+        <Text style={styles.exerciseTitle}>{exercise.name_tr || exercise.name_en}</Text>
+        <Text style={styles.exerciseSubtitle}>{exercise.name_en}</Text>
         <View style={styles.exerciseChipRow}>
-          <View style={[styles.exerciseChip, { backgroundColor: `${categoryColor}22` }]}><Text style={[styles.exerciseChipText, { color: categoryColor }]}>{categoryLabel}</Text></View>
-          <View style={styles.exerciseChipNeutral}><Text style={styles.exerciseChipNeutralText}>{difficultyBadge}</Text></View>
+          <View style={[styles.exerciseChip, { backgroundColor: `${categoryColor}22` }]}>
+            <Text style={[styles.exerciseChipText, { color: categoryColor }]}>{categoryLabel}</Text>
+          </View>
+          <View style={styles.exerciseChipNeutral}>
+            <Text style={styles.exerciseChipNeutralText}>{difficultyBadge}</Text>
+          </View>
         </View>
         <View style={styles.exerciseMetaLine}>
           <MaterialCommunityIcons name="clock-outline" size={14} color={colors.textSecondary} />
-          <Text style={styles.exerciseMetaText}>{exercise.duration_min}dk</Text>
+          <Text style={styles.exerciseMetaText}>{exercise.duration_min} dk</Text>
         </View>
         <View style={styles.analyzableRow}>
-          <MaterialCommunityIcons name={exercise.is_analyzable ? 'camera-outline' : 'camera-off-outline'} size={16} color={exercise.is_analyzable ? colors.success : colors.textMuted} />
-          <Text style={[styles.analyzableText, exercise.is_analyzable && styles.analyzableTextActive]}>{exercise.is_analyzable ? 'Analiz edilebilir' : 'Analiz edilemez'}</Text>
+          <MaterialCommunityIcons
+            name={exercise.is_analyzable ? 'camera-outline' : 'camera-off-outline'}
+            size={16}
+            color={exercise.is_analyzable ? colors.success : colors.textMuted}
+          />
+          <Text style={[styles.analyzableText, exercise.is_analyzable && styles.analyzableTextActive]}>
+            {exercise.is_analyzable ? 'Analiz edilebilir' : 'Analiz edilemez'}
+          </Text>
         </View>
-        <View style={styles.expandHintRow}>
-          <Text style={styles.expandHintText}>{expanded ? 'Açıklamayı gizle' : 'Açıklamayı göster'}</Text>
-          <MaterialCommunityIcons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
-        </View>
-        <Animated.View style={[styles.exerciseDescriptionWrap, { maxHeight: animatedHeight, opacity: animatedOpacity }]}>
-          <Text style={styles.exerciseDescription}>{exercise.instructions_tr || exercise.instructions_en}</Text>
-        </Animated.View>
-      </Card>
-    </Touchable>
+        <ScrollView
+          style={styles.instructionScroll}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.instructionSectionLabel}>Nasıl yapılır</Text>
+          <Text style={styles.exerciseDescription}>
+            {exercise.instructions_tr || exercise.instructions_en || 'Talimat metni bu adım için eklenmemiş.'}
+          </Text>
+        </ScrollView>
+      </View>
+    </View>
+  );
+};
+
+type ExerciseCarouselProps = {
+  exercises: Exercise[];
+  difficultyBadge: string;
+};
+
+const ExerciseCarousel = ({ exercises, difficultyBadge }: ExerciseCarouselProps) => {
+  const { width: windowWidth } = useWindowDimensions();
+  const pageWidth = windowWidth;
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const onScrollEnd = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const x = e.nativeEvent.contentOffset.x;
+      const ix = Math.round(x / pageWidth);
+      setActiveIndex(Math.min(Math.max(0, ix), exercises.length - 1));
+    },
+    [exercises.length, pageWidth],
+  );
+
+  const renderItem = useCallback(
+    ({ item, index }: { item: Exercise; index: number }) => (
+      <ExerciseStepPage
+        exercise={item}
+        index={index}
+        total={exercises.length}
+        pageWidth={pageWidth}
+        difficultyBadge={difficultyBadge}
+      />
+    ),
+    [difficultyBadge, exercises.length, pageWidth],
+  );
+
+  if (exercises.length === 0) return null;
+
+  return (
+    <View style={styles.carouselWrap}>
+      <FlatList
+        key={pageWidth}
+        data={exercises}
+        keyExtractor={(item, index) => `${item.pose_id}-${index}`}
+        renderItem={renderItem}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={onScrollEnd}
+        getItemLayout={(_, index) => ({
+          length: pageWidth,
+          offset: pageWidth * index,
+          index,
+        })}
+        decelerationRate="fast"
+        initialNumToRender={2}
+        windowSize={3}
+        style={{ height: EXERCISE_CAROUSEL_HEIGHT }}
+      />
+      <View style={styles.dotsRow} accessibilityLabel={`Antrenman adımları, ${activeIndex + 1} / ${exercises.length}`}>
+        {exercises.map((_, i) => (
+          <View
+            key={String(i)}
+            style={[styles.dot, i === activeIndex && styles.dotActive]}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          />
+        ))}
+      </View>
+      <Text style={styles.swipeHint}>← Sürükleyerek tüm adımları inceleyin →</Text>
+    </View>
   );
 };
 
@@ -83,20 +203,7 @@ const PlanDetailScreen = ({ route, navigation }: Props) => {
   const startSessionMutation = useStartTrainingSession();
   const [showPlanActionsModal, setShowPlanActionsModal] = useState(false);
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
-  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
-  const animationValuesRef = useRef<Record<string, Animated.Value>>({});
   const plan = planQuery.data;
-
-  const getAnimatedValue = (key: string) => {
-    if (!animationValuesRef.current[key]) animationValuesRef.current[key] = new Animated.Value(0);
-    return animationValuesRef.current[key];
-  };
-
-  const toggleExpanded = (key: string) => {
-    const nextExpanded = !expandedItems[key];
-    setExpandedItems(prev => ({ ...prev, [key]: nextExpanded }));
-    Animated.timing(getAnimatedValue(key), { toValue: nextExpanded ? 1 : 0, duration: 220, useNativeDriver: false }).start();
-  };
 
   const onToggleFavorite = async () => {
     if (!plan) return;
@@ -146,7 +253,12 @@ const PlanDetailScreen = ({ route, navigation }: Props) => {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor={colors.primaryDark} />
-      <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingBottom: 120 + insets.bottom }]} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[styles.content, { paddingBottom: 120 + insets.bottom }]}
+        showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
+      >
         <LinearGradient colors={[colors.gradientHero[0], colors.gradientHero[1]]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, { paddingTop: insets.top + spacing.base }]}>
           <View style={styles.heroTopRow}>
             <Touchable onPress={navigation.goBack} style={styles.heroBackButton} borderRadius={radius.md} accessibilityRole="button" accessibilityLabel="Geri">
@@ -183,13 +295,8 @@ const PlanDetailScreen = ({ route, navigation }: Props) => {
           </View>
         </LinearGradient>
 
-        <Text style={styles.sectionTitle}>Egzersiz Listesi</Text>
-        <View style={styles.exerciseList}>
-          {plan.exercises.map((exercise, index) => {
-            const key = `${exercise.pose_id}-${index}`;
-            return <ExerciseItem key={key} exercise={exercise} index={index} expanded={Boolean(expandedItems[key])} onToggle={() => toggleExpanded(key)} animatedValue={getAnimatedValue(key)} difficultyBadge={`D${difficultyScale}`} />;
-          })}
-        </View>
+        <Text style={styles.sectionTitle}>Egzersiz adımları</Text>
+        <ExerciseCarousel exercises={plan.exercises} difficultyBadge={`D${difficultyScale}`} />
       </ScrollView>
 
       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, spacing.base) }]}>
@@ -222,30 +329,56 @@ const styles = StyleSheet.create({
   heroMetaText: { ...typography.bodySm, color: 'rgba(255,255,255,0.84)' },
   heroMetaDot: { ...typography.bodySm, color: 'rgba(255,255,255,0.84)' },
   sectionTitle: { ...typography.h4, color: colors.text, marginTop: spacing.lg, marginHorizontal: spacing.base, marginBottom: spacing.sm },
-  exerciseList: { paddingHorizontal: spacing.base, gap: spacing.sm },
-  exercisePressable: { borderRadius: radius.lg },
-  exerciseCard: { gap: spacing.sm, paddingLeft: spacing.sm },
-  exerciseCardAccent: { borderLeftWidth: 4 },
-  exerciseHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  carouselWrap: { marginBottom: spacing.sm },
+  stepPage: {
+    height: EXERCISE_CAROUSEL_HEIGHT,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.borderLight,
+  },
+  stepPreview: {
+    height: 200,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.base,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderLight,
+    overflow: 'hidden',
+  },
+  stepPreviewLabel: { ...typography.bodySmMedium, color: colors.text, marginTop: spacing.sm },
+  stepPreviewHint: { ...typography.caption, color: colors.textMuted, textAlign: 'center', marginTop: spacing.xs, paddingHorizontal: spacing.lg },
+  stepMetaBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surfaceElevated,
+  },
+  stepCounterText: { ...typography.captionMedium, color: colors.textSecondary },
+  stepBody: { flex: 1, paddingHorizontal: spacing.base, paddingTop: spacing.sm },
+  instructionScroll: { flexGrow: 1, maxHeight: 220 },
+  instructionSectionLabel: { ...typography.captionMedium, color: colors.textMuted, marginBottom: spacing.xs },
+  dotsRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.xs, paddingVertical: spacing.sm },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.border },
+  dotActive: { backgroundColor: colors.primary, width: 14 },
+  swipeHint: { ...typography.caption, color: colors.textMuted, textAlign: 'center', paddingHorizontal: spacing.base, marginBottom: spacing.xs },
   exerciseNumberBadge: { width: 28, height: 28, borderRadius: radius.full, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   exerciseNumber: { ...typography.captionMedium, color: colors.textOnPrimary },
-  exerciseNameWrap: { flex: 1 },
   exerciseTitle: { ...typography.h4, color: colors.text },
   exerciseSubtitle: { ...typography.caption, color: colors.textMuted, fontStyle: 'italic', marginTop: spacing.xxs },
-  exerciseChipRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  exerciseChipRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm },
   exerciseChip: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.full },
   exerciseChipText: { ...typography.caption },
   exerciseChipNeutral: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.full, backgroundColor: colors.surfaceElevated },
   exerciseChipNeutralText: { ...typography.caption, color: colors.textSecondary },
-  exerciseMetaLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  exerciseMetaLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs },
   exerciseMetaText: { ...typography.caption, color: colors.textSecondary },
-  analyzableRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  analyzableRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs },
   analyzableText: { ...typography.captionMedium, color: colors.textMuted },
   analyzableTextActive: { color: colors.success },
-  exerciseDescriptionWrap: { overflow: 'hidden', borderTopWidth: 1, borderTopColor: colors.borderLight },
-  exerciseDescription: { ...typography.bodySm, color: colors.textSecondary, paddingTop: spacing.sm },
-  expandHintRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  expandHintText: { ...typography.caption, color: colors.textMuted },
+  exerciseDescription: { ...typography.bodySm, color: colors.textSecondary, lineHeight: 22 },
   bottomBar: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingTop: spacing.base, paddingHorizontal: spacing.base, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.borderLight },
 });
 
