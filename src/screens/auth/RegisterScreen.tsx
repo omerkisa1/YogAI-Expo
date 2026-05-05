@@ -3,11 +3,10 @@ import { Controller, useForm } from 'react-hook-form';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import Input from '@/shared/components/Input';
+import AuthInput from '@/shared/components/AuthInput';
 import Touchable from '@/shared/components/Touchable';
 import { useNetworkStatus } from '@/shared/hooks/useNetworkStatus';
 import type { AuthStackParamList } from '@/navigation/types';
@@ -18,6 +17,8 @@ import { typography } from '@/theme/typography';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 interface RegisterFormValues { displayName: string; email: string; password: string; confirmPassword: string }
+
+const serifBrand = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' });
 
 const mapFirebaseError = (error: unknown) => {
   const code = (error as { code?: string })?.code;
@@ -62,57 +63,42 @@ const RegisterScreen = ({ navigation }: Props) => {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.primaryDark} />
+      <StatusBar barStyle="dark-content" />
       <KeyboardAvoidingView style={styles.keyboardAvoid} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          <LinearGradient
-            colors={[colors.gradientPrimary[0], colors.gradientPrimary[1]]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.hero}
-          >
-            <View style={styles.heroTopRow}>
-              <Touchable onPress={() => navigation.goBack()} borderRadius={radius.md} style={styles.heroBack} accessibilityRole="button" accessibilityLabel="Geri">
-                <MaterialCommunityIcons name="chevron-left" size={24} color={colors.textOnPrimary} />
-                <Text style={styles.heroBackText}>Geri</Text>
-              </Touchable>
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <MaterialCommunityIcons name="leaf" size={36} color={colors.primaryDark} />
+              <Text style={styles.heroTitle}>{`YogAI'ye katıl`}</Text>
+              <Text style={styles.heroSubtitle}>Farkındalıklı pratiğine başla.</Text>
             </View>
-            <View style={styles.heroCenter}>
-              <MaterialCommunityIcons name="account-plus-outline" size={56} color={colors.textOnPrimary} />
-              <Text style={styles.heroTitle}>Hesap Oluştur</Text>
-              <Text style={styles.heroSubtitle}>YogAI ile kişisel pratiğine başla</Text>
-            </View>
-          </LinearGradient>
-
-          <View style={styles.formCard}>
-            <Text style={styles.trustLine}>Giriş bilgilerin güvenli bağlantıyla iletilir; kamera analizi mümkün olduğunca cihazında kalır.</Text>
 
             <Controller name="displayName" control={control} rules={{ required: 'Ad Soyad zorunlu', minLength: { value: 2, message: 'Ad Soyad en az 2 karakter olmalı' } }}
               render={({ field: { value, onChange } }) => (
-                <Input label="Ad Soyad" placeholder="Ad Soyad" value={value} onChangeText={onChange} error={errors.displayName?.message} icon="account-outline" autoCapitalize="words" textContentType="name" accessibilityLabel="Ad Soyad" />
+                <AuthInput label="Ad Soyad" placeholder="Adınızı girin" value={value} onChangeText={onChange} error={errors.displayName?.message} autoCapitalize="words" textContentType="name" accessibilityLabel="Ad Soyad" />
               )}
             />
 
             <Controller name="email" control={control} rules={{ required: 'Email zorunlu', pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: 'Geçerli email adresi girin' } }}
               render={({ field: { value, onChange } }) => (
-                <Input label="Email" placeholder="Email adresiniz" value={value} onChangeText={onChange} error={errors.email?.message} icon="email-outline" keyboardType="email-address" autoCapitalize="none" textContentType="emailAddress" accessibilityLabel="Email" />
+                <AuthInput label="E-posta" placeholder="E-postanızı girin" value={value} onChangeText={onChange} error={errors.email?.message} keyboardType="email-address" autoCapitalize="none" textContentType="emailAddress" accessibilityLabel="E-posta" />
               )}
             />
 
             <Controller name="password" control={control} rules={{ required: 'Şifre zorunlu', minLength: { value: 6, message: 'Şifre en az 6 karakter olmalı' } }}
               render={({ field: { value, onChange } }) => (
-                <Input label="Şifre" placeholder="Şifrenizi girin" value={value} onChangeText={onChange} error={errors.password?.message} icon="lock-outline" secureTextEntry={!isPasswordVisible} rightIcon={isPasswordVisible ? 'eye-off-outline' : 'eye-outline'} onRightIconPress={() => setIsPasswordVisible(prev => !prev)} accessibilityLabel="Şifre" />
+                <AuthInput label="Şifre" placeholder="Şifrenizi girin" value={value} onChangeText={onChange} error={errors.password?.message} secureTextEntry={!isPasswordVisible} rightIcon={isPasswordVisible ? 'eye-off-outline' : 'eye-outline'} onRightIconPress={() => setIsPasswordVisible(prev => !prev)} textContentType="newPassword" accessibilityLabel="Şifre" />
               )}
             />
 
             <Controller name="confirmPassword" control={control} rules={{ required: 'Şifre tekrarı zorunlu', validate: value => value === passwordValue || 'Şifreler eşleşmiyor' }}
               render={({ field: { value, onChange } }) => (
-                <Input label="Şifre Tekrar" placeholder="Şifrenizi tekrar girin" value={value} onChangeText={onChange} error={errors.confirmPassword?.message} icon="lock-check-outline" secureTextEntry={!isConfirmPasswordVisible} rightIcon={isConfirmPasswordVisible ? 'eye-off-outline' : 'eye-outline'} onRightIconPress={() => setIsConfirmPasswordVisible(prev => !prev)} accessibilityLabel="Şifre tekrar" />
+                <AuthInput label="Şifre tekrar" placeholder="Şifrenizi tekrar girin" value={value} onChangeText={onChange} error={errors.confirmPassword?.message} secureTextEntry={!isConfirmPasswordVisible} rightIcon={isConfirmPasswordVisible ? 'eye-off-outline' : 'eye-outline'} onRightIconPress={() => setIsConfirmPasswordVisible(prev => !prev)} textContentType="newPassword" accessibilityLabel="Şifre tekrar" />
               )}
             />
 
-            <Touchable onPress={onSubmit} disabled={loading} style={[styles.primaryButton, loading && styles.primaryButtonDisabled]} borderRadius={radius.lg} accessibilityRole="button" accessibilityLabel="Kayıt ol">
-              {loading ? <ActivityIndicator size="small" color={colors.textOnPrimary} /> : <Text style={styles.primaryButtonText}>Kayıt Ol</Text>}
+            <Touchable onPress={onSubmit} disabled={loading} style={[styles.pillPrimary, loading && styles.pillDisabled]} borderRadius={radius.full} accessibilityRole="button" accessibilityLabel="Hesap oluştur">
+              {loading ? <ActivityIndicator size="small" color={colors.textOnPrimary} /> : <Text style={styles.pillPrimaryText}>Hesap oluştur</Text>}
             </Touchable>
 
             <View style={styles.separatorRow}>
@@ -121,21 +107,18 @@ const RegisterScreen = ({ navigation }: Props) => {
               <View style={styles.separatorLine} />
             </View>
 
-            <Touchable onPress={onGoogleRegister} disabled={loading} style={[styles.googleButton, loading && styles.googleButtonDisabled]} borderRadius={radius.lg} accessibilityRole="button" accessibilityLabel="Google ile kayıt ol">
+            <Touchable onPress={onGoogleRegister} disabled={loading} style={[styles.googleButton, loading && styles.googleButtonDisabled]} borderRadius={radius.full} accessibilityRole="button" accessibilityLabel="Google ile kayıt ol">
               {loading ? <ActivityIndicator size="small" color={colors.textSecondary} /> : (
                 <>
                   <View style={styles.googleIconWrap}><Text style={styles.googleIconText}>G</Text></View>
-                  <Text style={styles.googleButtonText}>Google ile Kayıt Ol</Text>
+                  <Text style={styles.googleButtonText}>Google ile kayıt ol</Text>
                 </>
               )}
             </Touchable>
 
-            <View style={styles.loginRow}>
-              <Text style={styles.loginHint}>Zaten hesabın var mı?</Text>
-              <Touchable onPress={() => navigation.navigate('Login')} style={styles.loginPressable} borderRadius={radius.md} accessibilityRole="button" accessibilityLabel="Giriş yap ekranına git">
-                <Text style={styles.loginAction}>Giriş Yap</Text>
-              </Touchable>
-            </View>
+            <Touchable onPress={() => navigation.navigate('Login')} style={styles.backToLogin} borderRadius={radius.sm} accessibilityRole="button" accessibilityLabel="Giriş ekranına dön">
+              <Text style={styles.backToLoginText}>Girişe dön</Text>
+            </Touchable>
 
             <Text style={styles.legalFooter}>
               Kayıt olarak Kullanım Şartları ve Gizlilik Politikası çerçevesinde hesap verilerinin işlenmesini kabul etmiş olursun.
@@ -150,46 +133,73 @@ const RegisterScreen = ({ navigation }: Props) => {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   keyboardAvoid: { flex: 1 },
-  scrollContent: { flexGrow: 1, paddingBottom: spacing.huge },
-  hero: {
-    minHeight: 220,
-    paddingBottom: spacing.xl,
-    borderBottomLeftRadius: 36,
-    borderBottomRightRadius: 36,
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.lg,
+    paddingBottom: spacing.huge,
+    justifyContent: 'center',
   },
-  heroTopRow: { paddingHorizontal: spacing.base, paddingTop: spacing.xs },
-  heroBack: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.xs, gap: 2 },
-  heroBackText: { ...typography.bodySmMedium, color: colors.textOnPrimary },
-  heroCenter: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl, paddingTop: spacing.sm },
-  heroTitle: { ...typography.h2, color: colors.textOnPrimary, marginTop: spacing.sm },
-  heroSubtitle: { ...typography.bodySm, color: 'rgba(255,255,255,0.85)', marginTop: spacing.xs, textAlign: 'center' },
-  formCard: {
-    marginTop: -spacing.xl,
-    marginHorizontal: spacing.base,
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    padding: spacing.xl,
-    gap: spacing.sm,
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 28,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.xl + spacing.sm,
+    ...shadows.card,
     borderWidth: 1,
     borderColor: colors.borderLight,
-    ...shadows.lg,
   },
-  trustLine: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.sm, lineHeight: 18 },
-  primaryButton: { minHeight: 52, borderRadius: radius.lg, backgroundColor: colors.primary, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: spacing.xs },
-  primaryButtonDisabled: { opacity: 0.65 },
-  primaryButtonText: { ...typography.buttonLg, color: colors.textOnPrimary },
-  separatorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginVertical: spacing.base },
+  cardHeader: { alignItems: 'center', marginBottom: spacing.lg },
+  heroTitle: {
+    fontFamily: serifBrand,
+    fontSize: 28,
+    fontWeight: '700',
+    color: colors.primaryDark,
+    marginTop: spacing.md,
+    textAlign: 'center',
+  },
+  heroSubtitle: {
+    ...typography.bodySm,
+    fontFamily: serifBrand,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+    textAlign: 'center',
+  },
+  pillPrimary: {
+    minHeight: 54,
+    marginTop: spacing.sm,
+    borderRadius: radius.full,
+    backgroundColor: colors.primaryDark,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xl,
+    ...shadows.sm,
+  },
+  pillDisabled: { opacity: 0.65 },
+  pillPrimaryText: { ...typography.buttonLg, color: colors.textOnPrimary },
+  separatorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.lg, marginBottom: spacing.sm },
   separatorLine: { flex: 1, height: 1, backgroundColor: colors.border },
   separatorText: { ...typography.caption, color: colors.textMuted },
-  googleButton: { minHeight: 52, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceElevated, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  googleButton: {
+    minHeight: 50,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceElevated,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   googleButtonDisabled: { opacity: 0.6 },
   googleIconWrap: { width: 22, height: 22, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: colors.borderLight, marginRight: spacing.sm },
   googleIconText: { ...typography.bodySmMedium, color: '#4285F4' },
-  googleButtonText: { ...typography.buttonLg, color: colors.text },
-  loginRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: spacing.md },
-  loginHint: { ...typography.bodySm, color: colors.textSecondary },
-  loginPressable: { marginLeft: spacing.xs },
-  loginAction: { ...typography.bodySmMedium, color: colors.primary },
+  googleButtonText: { ...typography.buttonMd, color: colors.text },
+  backToLogin: { alignSelf: 'center', marginTop: spacing.xl, paddingVertical: spacing.xs },
+  backToLoginText: {
+    ...typography.bodySm,
+    fontFamily: serifBrand,
+    color: colors.textSecondary,
+  },
   legalFooter: { ...typography.caption, color: colors.textMuted, textAlign: 'center', marginTop: spacing.lg, lineHeight: 18 },
 });
 
