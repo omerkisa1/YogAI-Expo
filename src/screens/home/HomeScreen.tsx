@@ -8,7 +8,7 @@ import Toast from 'react-native-toast-message';
 import { useUpdatePlan } from '@/features/plans/hooks/useCreatePlan';
 import { usePlans } from '@/features/plans/hooks/usePlans';
 import { useProfile } from '@/features/profile/hooks/useProfile';
-import { useTrainingStats } from '@/features/training/hooks/useTraining';
+import { useCompletedSessionsByPlan, useTrainingStats } from '@/features/training/hooks/useTraining';
 import EmptyState from '@/shared/components/EmptyState';
 import ErrorView from '@/shared/components/ErrorView';
 import PlanCard from '@/shared/components/PlanCard';
@@ -92,6 +92,7 @@ const HomeScreen = () => {
   const profileQuery = useProfile();
   const plansQuery = usePlans();
   const statsQuery = useTrainingStats();
+  const completedSessionsByPlan = useCompletedSessionsByPlan();
   const updatePlanMutation = useUpdatePlan();
 
   const profileName = profileQuery.data?.display_name || 'Yogi';
@@ -127,9 +128,14 @@ const HomeScreen = () => {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.allSettled([profileQuery.refetch(), plansQuery.refetch(), statsQuery.refetch()]);
+    await Promise.allSettled([
+      profileQuery.refetch(),
+      plansQuery.refetch(),
+      statsQuery.refetch(),
+      queryClient.invalidateQueries({ queryKey: ['training', 'sessions'] }),
+    ]);
     setRefreshing(false);
-  }, [profileQuery, plansQuery, statsQuery]);
+  }, [profileQuery, plansQuery, statsQuery, queryClient]);
 
   const handleOpenPlan = useCallback(
     (planId: string) => {
@@ -344,7 +350,15 @@ const HomeScreen = () => {
         ) : (
           <View style={styles.planList}>
             {latestPlans.map(plan => (
-              <PlanCard key={plan.id} plan={plan} onPress={handleOpenPlan} onToggleFavorite={onToggleFavorite} onTogglePin={onTogglePin} actionsDisabled={updatePlanMutation.isPending} progress={0} />
+              <PlanCard
+                key={plan.id}
+                plan={plan}
+                onPress={handleOpenPlan}
+                onToggleFavorite={onToggleFavorite}
+                onTogglePin={onTogglePin}
+                actionsDisabled={updatePlanMutation.isPending}
+                completedSessionsCount={completedSessionsByPlan.get(plan.id) ?? 0}
+              />
             ))}
           </View>
         )}

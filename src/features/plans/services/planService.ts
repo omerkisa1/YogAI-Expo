@@ -4,6 +4,22 @@ import type { CreatePlanRequest, Exercise, FocusArea, Level, Plan, PlanMetaUpdat
 type ApiWrapper<T> = { status: number; message: string; data: T };
 type RawPlan = Record<string, unknown>;
 
+const parseOptionalCompletionPercent = (raw: RawPlan, detail: RawPlan): number | undefined => {
+  const candidates = [
+    detail.completion_percent,
+    detail.completionPercentage,
+    raw.completion_percent,
+    raw.completionPercentage,
+    raw.progress_percent,
+  ];
+  for (const v of candidates) {
+    if (v == null || v === '') continue;
+    const n = typeof v === 'string' ? Number.parseFloat(v) : Number(v);
+    if (Number.isFinite(n)) return Math.max(0, Math.min(100, n));
+  }
+  return undefined;
+};
+
 const mapPlan = (raw: RawPlan): Plan => {
   const detail = ((raw.plan ?? raw.plan_en ?? raw.plan_tr ?? {}) as RawPlan);
   return {
@@ -17,6 +33,7 @@ const mapPlan = (raw: RawPlan): Plan => {
     description_tr: (detail.description_tr ?? '') as string,
     analyzable_pose_count: (detail.analyzable_pose_count ?? 0) as number,
     total_pose_count: (detail.total_pose_count ?? 0) as number,
+    completion_percent: parseOptionalCompletionPercent(raw, detail),
     favorite: (raw.is_favorite ?? false) as boolean,
     pin: (raw.is_pinned ?? false) as boolean,
     created_at: raw.created_at as string | undefined,

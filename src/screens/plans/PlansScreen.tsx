@@ -1,11 +1,13 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { FlatList, RefreshControl, SafeAreaView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { NavigationProp, useNavigation } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
 import { useDeletePlan, useUpdatePlan } from '@/features/plans/hooks/useCreatePlan';
 import { usePlans } from '@/features/plans/hooks/usePlans';
+import { useCompletedSessionsByPlan } from '@/features/training/hooks/useTraining';
 import AppModal from '@/shared/components/AppModal';
 import BottomSheet from '@/shared/components/BottomSheet';
 import Button from '@/shared/components/Button';
@@ -35,7 +37,9 @@ const filterOptions: FilterOption[] = [
 
 const PlansScreen = () => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const queryClient = useQueryClient();
   const plansQuery = usePlans();
+  const completedSessionsByPlan = useCompletedSessionsByPlan();
   const updatePlanMutation = useUpdatePlan();
   const deletePlanMutation = useDeletePlan();
 
@@ -53,7 +57,11 @@ const PlansScreen = () => {
     }
   }, [activeFilter, plans]);
 
-  const onRefresh = useCallback(async () => { setRefreshing(true); await plansQuery.refetch(); setRefreshing(false); }, [plansQuery]);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.allSettled([plansQuery.refetch(), queryClient.invalidateQueries({ queryKey: ['training', 'sessions'] })]);
+    setRefreshing(false);
+  }, [plansQuery, queryClient]);
   const openPlanDetail = useCallback((planId: string) => { navigation.navigate('PlanDetail', { planId }); }, [navigation]);
 
   const toggleFavorite = useCallback(async (plan: Plan) => {
@@ -70,6 +78,7 @@ const PlansScreen = () => {
     <Touchable
       onPress={() => setActiveFilter(item.key)}
       borderRadius={radius.full}
+      scaleDown={0.96}
       style={[styles.filterChip, activeFilter === item.key ? styles.filterChipSelected : styles.filterChipUnselected]}
       accessibilityRole="button" accessibilityLabel={`${item.label} filtresi`}
     >
@@ -79,8 +88,16 @@ const PlansScreen = () => {
   ), [activeFilter]);
 
   const renderPlanItem = useCallback(({ item }: { item: Plan }) => (
-    <PlanCard plan={item} onPress={openPlanDetail} onToggleFavorite={toggleFavorite} onTogglePin={togglePin} onLongPress={setSelectedPlan} actionsDisabled={updatePlanMutation.isPending || deletePlanMutation.isPending} progress={0} />
-  ), [deletePlanMutation.isPending, openPlanDetail, toggleFavorite, togglePin, updatePlanMutation.isPending]);
+    <PlanCard
+      plan={item}
+      onPress={openPlanDetail}
+      onToggleFavorite={toggleFavorite}
+      onTogglePin={togglePin}
+      onLongPress={setSelectedPlan}
+      actionsDisabled={updatePlanMutation.isPending || deletePlanMutation.isPending}
+      completedSessionsCount={completedSessionsByPlan.get(item.id) ?? 0}
+    />
+  ), [completedSessionsByPlan, deletePlanMutation.isPending, openPlanDetail, toggleFavorite, togglePin, updatePlanMutation.isPending]);
 
   if (plansQuery.isLoading && !plansQuery.data) {
     return (

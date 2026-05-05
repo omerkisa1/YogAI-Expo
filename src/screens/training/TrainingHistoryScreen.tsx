@@ -101,7 +101,7 @@ const TrainingHistoryScreen = () => {
     const completedMoveCount = item.results?.length ?? 0;
 
     return (
-      <Touchable onPress={() => navigation.navigate('TrainingSessionDetail', { sessionId: item.id })} style={styles.sessionPressable} borderRadius={radius.lg} accessibilityRole="button" accessibilityLabel="Antrenman oturumu detay">
+      <Touchable onPress={() => navigation.navigate('TrainingSessionDetail', { sessionId: item.id })} style={styles.sessionPressable} borderRadius={radius.lg} scaleDown={0.98} accessibilityRole="button" accessibilityLabel="Antrenman oturumu detay">
         <Card variant="default" style={styles.sessionCard}>
           <View style={styles.sessionHeaderRow}>
             <Text style={styles.sessionTitle}>Plan #{item.plan_id.slice(0, 8)}</Text>
@@ -129,11 +129,11 @@ const TrainingHistoryScreen = () => {
         maxToRenderPerBatch={10}
         windowSize={5}
         removeClippedSubviews
-        getItemLayout={(_, index) => ({ length: 152, offset: 152 * index, index })}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void onRefresh(); }} tintColor={colors.primary} />}
         ListHeaderComponent={
           <View>
             <Text style={styles.pageTitle}>Antrenmanlarım</Text>
+            <Button title="Plandan başlat" onPress={() => navigation.navigate('MainTabs', { screen: 'Plans' })} variant="outline" size="md" fullWidth icon="calendar-text-outline" accessibilityLabel="Plan seçerek antrenman başlat" style={styles.startFromPlanButton} />
             <Button title="Poz Testi" onPress={() => navigation.navigate('CameraTest')} variant="outline" size="md" fullWidth icon="camera-outline" accessibilityLabel="Poz testi aç" style={styles.cameraButton} />
             <LinearGradient colors={[colors.gradientHero[0], colors.gradientHero[1]]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
               <View style={styles.heroStatsRow}>
@@ -189,6 +189,7 @@ const styles = StyleSheet.create({
   heroStatLabel: { ...typography.caption, color: 'rgba(255,255,255,0.72)' },
   heroSummary: { ...typography.caption, color: 'rgba(255,255,255,0.85)' },
   cameraButton: { marginBottom: spacing.sm },
+  startFromPlanButton: { marginBottom: spacing.sm },
   sessionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   sessionPressable: { borderRadius: radius.lg },
   sessionCard: { gap: spacing.sm, paddingVertical: spacing.md },

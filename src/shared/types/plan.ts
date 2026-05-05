@@ -48,6 +48,8 @@ export interface Plan {
   description_tr: string;
   analyzable_pose_count: number;
   total_pose_count: number;
+  /** Sunucu gönderirse plan kartında ilerleme çubuğu için kullanılır */
+  completion_percent?: number;
   favorite?: boolean;
   pin?: boolean;
   created_at?: string;

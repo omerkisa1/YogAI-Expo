@@ -123,6 +123,7 @@ const LoginScreen = ({ navigation }: Props) => {
           </LinearGradient>
 
           <View style={styles.formSection}>
+            <Text style={styles.trustLine}>Hesabın şifrelenmiş bağlantıyla korunur. İstersen antrenmanları çevrimdışı senkronize edebilirsin.</Text>
             <Controller
               name="email"
               control={control}
@@ -166,6 +167,10 @@ const LoginScreen = ({ navigation }: Props) => {
                 <Text style={styles.registerAction}>Kayıt Ol</Text>
               </Touchable>
             </View>
+
+            <Text style={styles.legalFooter}>
+              Devam ederek Kullanım Şartları ve Gizlilik Politikası kapsamında veri işlenmesini kabul etmiş olursun.
+            </Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -196,6 +201,7 @@ const styles = StyleSheet.create({
   brandTitle: { ...typography.display, color: colors.textOnPrimary, marginTop: spacing.sm },
   brandSubtitle: { ...typography.bodySm, color: 'rgba(255,255,255,0.82)', marginTop: spacing.xs },
   formSection: { paddingHorizontal: spacing.xl, paddingTop: spacing.xl, paddingBottom: spacing.xl },
+  trustLine: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.base, lineHeight: 18 },
   forgotContainer: { alignSelf: 'flex-end', marginBottom: spacing.lg },
   forgotText: { ...typography.bodySmMedium, color: colors.primary },
   separatorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.base },
@@ -210,6 +216,7 @@ const styles = StyleSheet.create({
   registerHint: { ...typography.bodySm, color: colors.textSecondary },
   registerPressable: { marginLeft: spacing.xs },
   registerAction: { ...typography.bodySmMedium, color: colors.primary },
+  legalFooter: { ...typography.caption, color: colors.textMuted, textAlign: 'center', marginTop: spacing.lg, lineHeight: 18 },
   sheetActions: { gap: spacing.sm, marginTop: spacing.sm },
 });
 

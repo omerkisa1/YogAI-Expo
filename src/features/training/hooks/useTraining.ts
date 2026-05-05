@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SubmitPoseRequest } from '@/shared/types/training';
 import { trainingService } from '../services/trainingService';
@@ -10,6 +11,20 @@ export const useTrainingSession = (id: string) =>
 
 export const useTrainingStats = () =>
   useQuery({ queryKey: ['training', 'stats'], queryFn: trainingService.getStats });
+
+/** Plan kimliğine göre tamamlanan oturum sayısı (ilerleme metni için; sahte yüzde üretmez) */
+export const useCompletedSessionsByPlan = () => {
+  const q = useTrainingSessions();
+  return useMemo(() => {
+    const m = new Map<string, number>();
+    const sessions = q.data;
+    if (!Array.isArray(sessions)) return m;
+    for (const s of sessions) {
+      if (s.status === 'completed') m.set(s.plan_id, (m.get(s.plan_id) ?? 0) + 1);
+    }
+    return m;
+  }, [q.data]);
+};
 
 export const useStartTrainingSession = () => {
   const queryClient = useQueryClient();

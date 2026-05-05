@@ -3,6 +3,7 @@ import { Controller, useForm } from 'react-hook-form';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -12,6 +13,7 @@ import { useNetworkStatus } from '@/shared/hooks/useNetworkStatus';
 import type { AuthStackParamList } from '@/navigation/types';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
+import { shadows } from '@/theme/shadows';
 import { typography } from '@/theme/typography';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
@@ -60,19 +62,30 @@ const RegisterScreen = ({ navigation }: Props) => {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
+      <StatusBar barStyle="light-content" backgroundColor={colors.primaryDark} />
       <KeyboardAvoidingView style={styles.keyboardAvoid} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          <View style={styles.headerRow}>
-            <Touchable onPress={() => navigation.goBack()} style={styles.backButton} borderRadius={radius.md} accessibilityRole="button" accessibilityLabel="Geri">
-              <MaterialCommunityIcons name="chevron-left" size={24} color={colors.primary} />
-              <Text style={styles.backText}>Geri</Text>
-            </Touchable>
-            <Text style={styles.headerTitle}>Hesap Oluştur</Text>
-          </View>
+          <LinearGradient
+            colors={[colors.gradientPrimary[0], colors.gradientPrimary[1]]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.hero}
+          >
+            <View style={styles.heroTopRow}>
+              <Touchable onPress={() => navigation.goBack()} borderRadius={radius.md} style={styles.heroBack} accessibilityRole="button" accessibilityLabel="Geri">
+                <MaterialCommunityIcons name="chevron-left" size={24} color={colors.textOnPrimary} />
+                <Text style={styles.heroBackText}>Geri</Text>
+              </Touchable>
+            </View>
+            <View style={styles.heroCenter}>
+              <MaterialCommunityIcons name="account-plus-outline" size={56} color={colors.textOnPrimary} />
+              <Text style={styles.heroTitle}>Hesap Oluştur</Text>
+              <Text style={styles.heroSubtitle}>YogAI ile kişisel pratiğine başla</Text>
+            </View>
+          </LinearGradient>
 
-          <View style={styles.formSection}>
-            <Text style={styles.subtitle}>Yeni hesabınızla YogAI dünyasına katılın</Text>
+          <View style={styles.formCard}>
+            <Text style={styles.trustLine}>Giriş bilgilerin güvenli bağlantıyla iletilir; kamera analizi mümkün olduğunca cihazında kalır.</Text>
 
             <Controller name="displayName" control={control} rules={{ required: 'Ad Soyad zorunlu', minLength: { value: 2, message: 'Ad Soyad en az 2 karakter olmalı' } }}
               render={({ field: { value, onChange } }) => (
@@ -123,6 +136,10 @@ const RegisterScreen = ({ navigation }: Props) => {
                 <Text style={styles.loginAction}>Giriş Yap</Text>
               </Touchable>
             </View>
+
+            <Text style={styles.legalFooter}>
+              Kayıt olarak Kullanım Şartları ve Gizlilik Politikası çerçevesinde hesap verilerinin işlenmesini kabul etmiş olursun.
+            </Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -133,28 +150,47 @@ const RegisterScreen = ({ navigation }: Props) => {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   keyboardAvoid: { flex: 1 },
-  scrollContent: { paddingHorizontal: spacing.xl, paddingTop: spacing.base, paddingBottom: spacing.huge },
-  headerRow: { marginTop: spacing.xs, marginBottom: spacing.base },
-  backButton: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.xs },
-  backText: { ...typography.bodySmMedium, color: colors.primary },
-  headerTitle: { ...typography.h3, color: colors.text, marginTop: spacing.xs },
-  formSection: { paddingTop: spacing.xs, paddingBottom: spacing.xl },
-  subtitle: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.base },
-  primaryButton: { minHeight: 52, borderRadius: radius.lg, backgroundColor: colors.primary, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  scrollContent: { flexGrow: 1, paddingBottom: spacing.huge },
+  hero: {
+    minHeight: 220,
+    paddingBottom: spacing.xl,
+    borderBottomLeftRadius: 36,
+    borderBottomRightRadius: 36,
+  },
+  heroTopRow: { paddingHorizontal: spacing.base, paddingTop: spacing.xs },
+  heroBack: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.xs, gap: 2 },
+  heroBackText: { ...typography.bodySmMedium, color: colors.textOnPrimary },
+  heroCenter: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl, paddingTop: spacing.sm },
+  heroTitle: { ...typography.h2, color: colors.textOnPrimary, marginTop: spacing.sm },
+  heroSubtitle: { ...typography.bodySm, color: 'rgba(255,255,255,0.85)', marginTop: spacing.xs, textAlign: 'center' },
+  formCard: {
+    marginTop: -spacing.xl,
+    marginHorizontal: spacing.base,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: spacing.xl,
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    ...shadows.lg,
+  },
+  trustLine: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.sm, lineHeight: 18 },
+  primaryButton: { minHeight: 52, borderRadius: radius.lg, backgroundColor: colors.primary, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: spacing.xs },
   primaryButtonDisabled: { opacity: 0.65 },
   primaryButtonText: { ...typography.buttonLg, color: colors.textOnPrimary },
   separatorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginVertical: spacing.base },
   separatorLine: { flex: 1, height: 1, backgroundColor: colors.border },
   separatorText: { ...typography.caption, color: colors.textMuted },
-  googleButton: { minHeight: 52, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  googleButton: { minHeight: 52, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceElevated, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   googleButtonDisabled: { opacity: 0.6 },
   googleIconWrap: { width: 22, height: 22, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: colors.borderLight, marginRight: spacing.sm },
   googleIconText: { ...typography.bodySmMedium, color: '#4285F4' },
   googleButtonText: { ...typography.buttonLg, color: colors.text },
-  loginRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: spacing.lg },
+  loginRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: spacing.md },
   loginHint: { ...typography.bodySm, color: colors.textSecondary },
   loginPressable: { marginLeft: spacing.xs },
   loginAction: { ...typography.bodySmMedium, color: colors.primary },
+  legalFooter: { ...typography.caption, color: colors.textMuted, textAlign: 'center', marginTop: spacing.lg, lineHeight: 18 },
 });
 
 export default RegisterScreen;

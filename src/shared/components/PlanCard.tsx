@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import Touchable from '@/shared/components/Touchable';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
 import { cardStyle } from '@/theme/shadows';
@@ -15,7 +16,8 @@ export interface PlanCardProps {
   onTogglePin?: (plan: Plan) => void;
   onLongPress?: (plan: Plan) => void;
   actionsDisabled?: boolean;
-  progress?: number;
+  /** Tamamlanan oturum sayısı (API yüzdesi yoksa metin olarak gösterilir) */
+  completedSessionsCount?: number;
 }
 
 const difficultyMeta: Record<Plan['difficulty'], { label: string; color: string }> = {
@@ -32,14 +34,17 @@ const focusAreaLabelMap: Record<string, string> = {
 
 const PlanCard = ({
   plan, onPress, onToggleFavorite, onTogglePin, onLongPress,
-  actionsDisabled = false, progress = 0,
+  actionsDisabled = false, completedSessionsCount = 0,
 }: PlanCardProps) => {
   const actionTriggeredRef = useRef(false);
   const difficulty = difficultyMeta[plan.difficulty] ?? { label: plan.difficulty, color: colors.textMuted };
   const focusArea = focusAreaLabelMap[plan.focus_area] ?? plan.focus_area;
   const analyzableCount = plan.analyzable_pose_count ?? 0;
   const totalPoses = plan.total_pose_count ?? plan.exercises?.length ?? 0;
-  const safeProgress = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
+
+  const apiPct = plan.completion_percent;
+  const hasCompletionBar = apiPct != null && Number.isFinite(apiPct);
+  const safePct = hasCompletionBar ? Math.max(0, Math.min(100, apiPct as number)) : 0;
 
   const handleCardPress = () => {
     if (actionTriggeredRef.current) {
@@ -60,18 +65,16 @@ const PlanCard = ({
   };
 
   return (
-    <Pressable
-      onPress={handleCardPress}
-      onLongPress={onLongPress ? () => onLongPress(plan) : undefined}
-      delayLongPress={260}
-      style={({ pressed }) => [
-        styles.card,
-        { borderLeftColor: difficulty.color },
-        pressed && styles.cardPressed,
-      ]}
-      accessibilityRole="button"
-      accessibilityLabel={`${plan.title_tr || plan.title_en} plan kartı`}
-    >
+    <View style={[styles.cardOuter, { borderLeftColor: difficulty.color }]}>
+      <Touchable
+        onPress={handleCardPress}
+        onLongPress={onLongPress ? () => onLongPress(plan) : undefined}
+        delayLongPress={260}
+        borderRadius={radius.lg}
+        style={styles.cardTouchable}
+        accessibilityRole="button"
+        accessibilityLabel={`${plan.title_tr || plan.title_en} plan kartı`}
+      >
       <View style={styles.headerRow}>
         <Text numberOfLines={1} style={styles.title}>
           {plan.title_tr || plan.title_en}
@@ -133,25 +136,38 @@ const PlanCard = ({
       </View>
 
       <View style={styles.progressWrap}>
-        <ProgressBar progress={safeProgress} color={colors.primary} height={4} animated />
-        <Text style={styles.progressLabel}>%{Math.round(safeProgress)} tamamlandı</Text>
+        {hasCompletionBar ? (
+          <>
+            <ProgressBar progress={safePct} color={colors.primary} height={4} animated />
+            <Text style={styles.progressLabel}>%{Math.round(safePct)} tamamlandı</Text>
+          </>
+        ) : completedSessionsCount > 0 ? (
+          <View style={styles.sessionHintRow}>
+            <MaterialCommunityIcons name="check-circle-outline" size={14} color={colors.primary} />
+            <Text style={styles.sessionHint}>{completedSessionsCount} tamamlanan antrenman</Text>
+          </View>
+        ) : (
+          <Text style={styles.progressMuted}>Henüz bu plana başlanmadı</Text>
+        )}
       </View>
-    </Pressable>
+    </Touchable>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  card: {
+  cardOuter: {
     ...cardStyle,
     backgroundColor: colors.surface,
     borderColor: colors.borderLight,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderLeftWidth: 4,
+  },
+  cardTouchable: {
     padding: spacing.base,
     gap: spacing.sm,
   },
-  cardPressed: { opacity: 0.85 },
   headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
   title: { ...typography.h4, color: colors.text, flex: 1, marginRight: spacing.sm },
   actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
@@ -164,6 +180,9 @@ const styles = StyleSheet.create({
   metaText: { ...typography.caption, color: colors.textSecondary },
   progressWrap: { gap: spacing.xs, marginTop: spacing.xs },
   progressLabel: { ...typography.caption, color: colors.textMuted },
+  sessionHintRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  sessionHint: { ...typography.caption, color: colors.textSecondary },
+  progressMuted: { ...typography.caption, color: colors.textMuted, fontStyle: 'italic' },
 });
 
 export default PlanCard;
