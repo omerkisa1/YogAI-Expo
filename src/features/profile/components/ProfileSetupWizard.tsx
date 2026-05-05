@@ -37,11 +37,10 @@ const injuries: { key: Injury; label: string }[] = [
 const totalSteps = 5;
 
 const getInitialStep = (p: Profile): number => {
-  if (!p.level) return 0;
-  if (!p.age) return 1;
-  if (!p.goals || p.goals.length === 0) return 2;
+  if (!p.age || p.age <= 0) return 0;
+  if (!p.goals?.length) return 2;
   if (!p.preferred_language) return 4;
-  return 0;
+  return 3;
 };
 
 const ProfileSetupWizard = ({ profile, onCompleted }: ProfileSetupWizardProps) => {
@@ -50,27 +49,50 @@ const ProfileSetupWizard = ({ profile, onCompleted }: ProfileSetupWizardProps) =
   const initialStep = useMemo(() => getInitialStep(profile), [profile]);
   const [currentStep, setCurrentStep] = useState(initialStep);
   const [level, setLevel] = useState<Level>(profile.level ?? 'beginner');
-  const [age, setAge] = useState(String(profile.age ?? ''));
+  const [age, setAge] = useState(String(profile.age && profile.age > 0 ? profile.age : ''));
   const [selectedGoals, setSelectedGoals] = useState<Goal[]>(profile.goals ?? []);
   const [selectedInjuries, setSelectedInjuries] = useState<Injury[]>(profile.injuries ?? []);
   const [language, setLanguage] = useState<AppLanguage>(profile.preferred_language ?? 'tr');
 
-  const title = useMemo(() => `Profilinizi Tamamlayın ${currentStep + 1}/${totalSteps}`, [currentStep]);
+  const title = useMemo(() => `Profilini tamamla · ${currentStep + 1}/${totalSteps}`, [currentStep]);
 
   const toggleGoal = (goal: Goal) => { setSelectedGoals(prev => prev.includes(goal) ? prev.filter(i => i !== goal) : [...prev, goal]); };
   const toggleInjury = (injury: Injury) => { setSelectedInjuries(prev => prev.includes(injury) ? prev.filter(i => i !== injury) : [...prev, injury]); };
 
+  const goNext = () => {
+    if (currentStep === 1) {
+      const n = Number(age);
+      if (!age.trim() || Number.isNaN(n) || n < 10 || n > 120) {
+        Toast.show({ type: 'error', position: 'top', text1: 'Yaş gerekli', text2: 'Lütfen geçerli bir yaş girin (10–120).' });
+        return;
+      }
+    }
+    if (currentStep === 2 && selectedGoals.length === 0) {
+      Toast.show({ type: 'error', position: 'top', text1: 'Hedef seç', text2: 'En az bir hedef seçmelisin.' });
+      return;
+    }
+    if (currentStep < totalSteps - 1) pagerRef.current?.setPage(currentStep + 1);
+  };
+
   const completeWizard = async () => {
     try {
-      await updateProfileMutation.mutateAsync({ level, age: Number(age) || profile.age, goals: selectedGoals, injuries: selectedInjuries, preferred_language: language });
-      Toast.show({ type: 'success', position: 'top', text1: 'Profil güncellendi', text2: 'Bilgileriniz başarıyla kaydedildi.' });
+      const ageNum = Number(age);
+      await updateProfileMutation.mutateAsync({
+        level,
+        age: !Number.isNaN(ageNum) && ageNum > 0 ? ageNum : profile.age,
+        goals: selectedGoals,
+        injuries: selectedInjuries,
+        preferred_language: language,
+      });
+      Toast.show({ type: 'success', position: 'top', text1: 'Profil güncellendi', text2: 'Bilgilerin kaydedildi.' });
       onCompleted?.();
-    } catch { Toast.show({ type: 'error', position: 'top', text1: 'Kaydetme Başarısız', text2: 'Lütfen tekrar deneyin.' }); }
+    } catch { Toast.show({ type: 'error', position: 'top', text1: 'Kaydetme başarısız', text2: 'Lütfen tekrar dene.' }); }
   };
 
   return (
     <View style={styles.container}>
       <Text style={styles.headerTitle}>{title}</Text>
+      <Text style={styles.swipeHint}>Kartları yana kaydırarak ilerleyebilirsin</Text>
       <View style={styles.dotsRow}>
         {Array.from({ length: totalSteps }).map((_, index) => (
           <View key={`dot-${index}`} style={[styles.dot, index <= currentStep ? styles.dotActive : styles.dotInactive]} />
@@ -79,7 +101,7 @@ const ProfileSetupWizard = ({ profile, onCompleted }: ProfileSetupWizardProps) =
 
       <PagerView ref={pagerRef} style={styles.pager} initialPage={initialStep} onPageSelected={event => setCurrentStep(event.nativeEvent.position)}>
         <View key="level" style={styles.page}>
-          <Text style={styles.question}>Seviyenizi seçin</Text>
+          <Text style={styles.question}>Seviyeni seç</Text>
           <View style={styles.levelRow}>
             {levelCards.map(option => {
               const selected = option.key === level;
@@ -94,12 +116,12 @@ const ProfileSetupWizard = ({ profile, onCompleted }: ProfileSetupWizardProps) =
         </View>
 
         <View key="age" style={styles.page}>
-          <Text style={styles.question}>Yaşınızı girin</Text>
+          <Text style={styles.question}>Yaşını gir</Text>
           <Input placeholder="Yaş" value={age} onChangeText={value => setAge(value.replace(/[^0-9]/g, ''))} icon="calendar-account-outline" keyboardType="number-pad" accessibilityLabel="Yaş" />
         </View>
 
         <View key="goals" style={styles.page}>
-          <Text style={styles.question}>Hedefleriniz neler?</Text>
+          <Text style={styles.question}>Hedeflerin neler?</Text>
           <View style={styles.chipsWrap}>
             {goals.map(goal => {
               const selected = selectedGoals.includes(goal.key);
@@ -113,7 +135,7 @@ const ProfileSetupWizard = ({ profile, onCompleted }: ProfileSetupWizardProps) =
         </View>
 
         <View key="injuries" style={styles.page}>
-          <Text style={styles.question}>Sakatlık durumunuz var mı?</Text>
+          <Text style={styles.question}>Sakatlığın var mı?</Text>
           <View style={styles.chipsWrap}>
             {injuries.map(injury => {
               const selected = selectedInjuries.includes(injury.key);
@@ -125,20 +147,22 @@ const ProfileSetupWizard = ({ profile, onCompleted }: ProfileSetupWizardProps) =
             })}
           </View>
           <Touchable onPress={() => setSelectedInjuries([])} borderRadius={radius.md} style={styles.noInjuryButton}>
-            <Text style={styles.noInjuryText}>Sakatlığım yok</Text>
+            <Text style={styles.noInjuryText}>Aktif sakatlığım yok</Text>
           </Touchable>
         </View>
 
         <View key="language" style={styles.page}>
-          <Text style={styles.question}>Dil tercihiniz</Text>
+          <Text style={styles.question}>Uygulama dili</Text>
           <View style={styles.languageRow}>
-            <Button title="TR" onPress={() => setLanguage('tr')} variant={language === 'tr' ? 'primary' : 'outline'} size="md" fullWidth />
-            <Button title="EN" onPress={() => setLanguage('en')} variant={language === 'en' ? 'primary' : 'outline'} size="md" fullWidth />
+            <Button title="Türkçe" onPress={() => setLanguage('tr')} variant={language === 'tr' ? 'primary' : 'outline'} size="md" fullWidth />
+            <Button title="English" onPress={() => setLanguage('en')} variant={language === 'en' ? 'primary' : 'outline'} size="md" fullWidth />
           </View>
         </View>
       </PagerView>
 
-      {currentStep === totalSteps - 1 && (
+      {currentStep < totalSteps - 1 ? (
+        <Button title="İleri" onPress={goNext} variant="primary" size="lg" fullWidth accessibilityLabel="İleri" />
+      ) : (
         <Button title="Tamamla" onPress={() => { void completeWizard(); }} variant="primary" size="lg" fullWidth loading={updateProfileMutation.isPending} disabled={updateProfileMutation.isPending} accessibilityLabel="Profili tamamla" />
       )}
     </View>
@@ -148,6 +172,7 @@ const ProfileSetupWizard = ({ profile, onCompleted }: ProfileSetupWizardProps) =
 const styles = StyleSheet.create({
   container: { ...cardStyle, borderRadius: radius.xl, padding: spacing.base, overflow: 'hidden', gap: spacing.sm },
   headerTitle: { ...typography.h4, color: colors.text },
+  swipeHint: { ...typography.caption, color: colors.textMuted },
   dotsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   dot: { width: 8, height: 8, borderRadius: radius.full },
   dotActive: { backgroundColor: colors.primary },
