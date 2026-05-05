@@ -1,9 +1,9 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import type { NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   FlatList,
-  SafeAreaView,
+  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -25,6 +25,11 @@ import LoadingView from '@/shared/components/LoadingView';
 import Touchable from '@/shared/components/Touchable';
 import type { Exercise, Plan } from '@/shared/types/plan';
 import type { RootStackParamList } from '@/navigation/types';
+import BottomSheet, {
+  BottomSheetBackdrop,
+  BottomSheetScrollView,
+  type BottomSheetBackdropProps,
+} from '@gorhom/bottom-sheet';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
@@ -207,6 +212,22 @@ const PlanDetailScreen = ({ route, navigation }: Props) => {
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
   const plan = planQuery.data;
 
+  const snapPoints = useMemo(() => ['92%'], []);
+
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.42} pressBehavior="close" />
+    ),
+    [],
+  );
+
+  const handleSheetChanges = useCallback(
+    (index: number) => {
+      if (index === -1) navigation.goBack();
+    },
+    [navigation],
+  );
+
   const onToggleFavorite = async () => {
     if (!plan) return;
     try { await updatePlanMutation.mutateAsync({ id: planId, data: { favorite: !plan.favorite } }); }
@@ -237,14 +258,27 @@ const PlanDetailScreen = ({ route, navigation }: Props) => {
     } catch { Toast.show({ type: 'error', position: 'top', text1: 'Antrenman başlatılamadı', text2: 'Lütfen tekrar deneyin.' }); }
   };
 
-  if (planQuery.isLoading) return (<SafeAreaView style={styles.safeArea}><StatusBar barStyle="dark-content" backgroundColor={colors.background} /><LoadingView message="Plan Detayı Yükleniyor..." fullScreen /></SafeAreaView>);
+  if (planQuery.isLoading) {
+    return (
+      <View style={styles.modalRoot}>
+        <StatusBar translucent barStyle="light-content" backgroundColor="transparent" />
+        <Pressable style={styles.dimTouch} onPress={() => navigation.goBack()} accessibilityRole="button" accessibilityLabel="Kapat" />
+        <View style={styles.loadingLayer}>
+          <LoadingView message="Plan Detayı Yükleniyor..." fullScreen />
+        </View>
+      </View>
+    );
+  }
 
   if (planQuery.isError || !plan) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
-        <View style={styles.errorWrap}><ErrorView type="notfound" title="Plan bulunamadı" description="Plan detayları şu anda getirilemiyor." onRetry={() => { void planQuery.refetch(); }} /></View>
-      </SafeAreaView>
+      <View style={styles.modalRoot}>
+        <StatusBar translucent barStyle="dark-content" backgroundColor="rgba(0,0,0,0.25)" />
+        <Pressable style={styles.dimTouch} onPress={() => navigation.goBack()} accessibilityRole="button" accessibilityLabel="Kapat" />
+        <View style={styles.errorWrap}>
+          <ErrorView type="notfound" title="Plan bulunamadı" description="Plan detayları şu anda getirilemiyor." onRetry={() => void planQuery.refetch()} />
+        </View>
+      </View>
     );
   }
 
@@ -253,69 +287,110 @@ const PlanDetailScreen = ({ route, navigation }: Props) => {
   const totalPoses = plan.total_pose_count || plan.exercises.length || 0;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.primaryDark} />
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={[styles.content, { paddingBottom: 120 + insets.bottom }]}
-        showsVerticalScrollIndicator={false}
-        nestedScrollEnabled
+    <View style={styles.modalRoot}>
+      <StatusBar translucent barStyle="dark-content" backgroundColor="transparent" />
+      <BottomSheet
+        index={0}
+        snapPoints={snapPoints}
+        enablePanDownToClose
+        onChange={handleSheetChanges}
+        backdropComponent={renderBackdrop}
+        handleIndicatorStyle={styles.sheetHandle}
+        backgroundStyle={styles.sheetSurface}
+        topInset={insets.top}
       >
-        <LinearGradient colors={[colors.gradientHero[0], colors.gradientHero[1]]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, { paddingTop: insets.top + spacing.base }]}>
-          <View style={styles.heroTopRow}>
-            <Touchable onPress={navigation.goBack} style={styles.heroBackButton} borderRadius={radius.md} accessibilityRole="button" accessibilityLabel="Geri">
-              <MaterialCommunityIcons name="chevron-left" size={24} color={colors.textOnPrimary} />
-              <Text style={styles.heroBackText}>Geri</Text>
-            </Touchable>
-            <View style={styles.heroActions}>
-              <Touchable onPress={() => { void onToggleFavorite(); }} style={styles.heroActionButton} borderRadius={radius.full} accessibilityRole="button" accessibilityLabel="Favori">
-                <MaterialCommunityIcons name={plan.favorite ? 'star' : 'star-outline'} size={20} color={colors.textOnPrimary} />
+        <BottomSheetScrollView
+          contentContainerStyle={[styles.sheetScrollContent, { paddingBottom: spacing.xxl + insets.bottom }]}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+        >
+          <LinearGradient
+            colors={[colors.gradientHero[0], colors.gradientHero[1]]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.hero, { paddingTop: spacing.lg }]}
+          >
+            <View style={styles.heroTopRow}>
+              <Touchable onPress={navigation.goBack} style={styles.heroBackButton} borderRadius={radius.md} accessibilityRole="button" accessibilityLabel="Geri">
+                <MaterialCommunityIcons name="chevron-left" size={24} color={colors.textOnPrimary} />
+                <Text style={styles.heroBackText}>Geri</Text>
               </Touchable>
-              <Touchable onPress={() => { void onTogglePin(); }} style={styles.heroActionButton} borderRadius={radius.full} accessibilityRole="button" accessibilityLabel="Sabitle">
-                <MaterialCommunityIcons name={plan.pin ? 'pin' : 'pin-outline'} size={20} color={colors.textOnPrimary} />
-              </Touchable>
-              <Touchable onPress={() => setShowPlanActionsModal(true)} style={styles.heroActionButton} borderRadius={radius.full} accessibilityRole="button" accessibilityLabel="Plan menü">
-                <MaterialCommunityIcons name="dots-vertical" size={20} color={colors.textOnPrimary} />
-              </Touchable>
+              <View style={styles.heroActions}>
+                <Touchable onPress={() => void onToggleFavorite()} style={styles.heroActionButton} borderRadius={radius.full} accessibilityRole="button" accessibilityLabel="Favori">
+                  <MaterialCommunityIcons name={plan.favorite ? 'star' : 'star-outline'} size={20} color={colors.textOnPrimary} />
+                </Touchable>
+                <Touchable onPress={() => void onTogglePin()} style={styles.heroActionButton} borderRadius={radius.full} accessibilityRole="button" accessibilityLabel="Sabitle">
+                  <MaterialCommunityIcons name={plan.pin ? 'pin' : 'pin-outline'} size={20} color={colors.textOnPrimary} />
+                </Touchable>
+                <Touchable onPress={() => setShowPlanActionsModal(true)} style={styles.heroActionButton} borderRadius={radius.full} accessibilityRole="button" accessibilityLabel="Plan menü">
+                  <MaterialCommunityIcons name="dots-vertical" size={20} color={colors.textOnPrimary} />
+                </Touchable>
+              </View>
             </View>
-          </View>
-          <Text style={styles.heroTitle}>{plan.title_tr || plan.title_en}</Text>
-          <View style={styles.heroChipRow}>
-            <View style={styles.heroChip}><Text style={styles.heroChipText}>{levelLabelMap[plan.difficulty]}</Text></View>
-            <View style={styles.heroChip}><Text style={styles.heroChipText}>{focusLabelMap[plan.focus_area] ?? plan.focus_area}</Text></View>
-          </View>
-          <View style={styles.heroMetaRow}>
-            <MaterialCommunityIcons name="clock-outline" size={15} color={colors.textOnPrimary} />
-            <Text style={styles.heroMetaText}>{plan.total_duration_min}dk</Text>
-            <Text style={styles.heroMetaDot}>•</Text>
-            <MaterialCommunityIcons name="yoga" size={15} color={colors.textOnPrimary} />
-            <Text style={styles.heroMetaText}>{totalPoses} hareket</Text>
-          </View>
-          <View style={styles.heroMetaRow}>
-            <MaterialCommunityIcons name="camera-outline" size={15} color={colors.textOnPrimary} />
-            <Text style={styles.heroMetaText}>{analyzableCount}/{totalPoses} analiz edilebilir</Text>
-          </View>
-        </LinearGradient>
+            <Text style={styles.heroTitle}>{plan.title_tr || plan.title_en}</Text>
+            <View style={styles.heroChipRow}>
+              <View style={styles.heroChip}>
+                <Text style={styles.heroChipText}>{levelLabelMap[plan.difficulty]}</Text>
+              </View>
+              <View style={styles.heroChip}>
+                <Text style={styles.heroChipText}>{focusLabelMap[plan.focus_area] ?? plan.focus_area}</Text>
+              </View>
+            </View>
+            <View style={styles.heroMetaRow}>
+              <MaterialCommunityIcons name="clock-outline" size={15} color={colors.textOnPrimary} />
+              <Text style={styles.heroMetaText}>{plan.total_duration_min}dk</Text>
+              <Text style={styles.heroMetaDot}>•</Text>
+              <MaterialCommunityIcons name="yoga" size={15} color={colors.textOnPrimary} />
+              <Text style={styles.heroMetaText}>{totalPoses} hareket</Text>
+            </View>
+            <View style={styles.heroMetaRow}>
+              <MaterialCommunityIcons name="camera-outline" size={15} color={colors.textOnPrimary} />
+              <Text style={styles.heroMetaText}>
+                {analyzableCount}/{totalPoses} analiz edilebilir
+              </Text>
+            </View>
+          </LinearGradient>
 
-        <Text style={styles.sectionTitle}>Egzersiz adımları</Text>
-        <ExerciseCarousel exercises={plan.exercises} difficultyBadge={`D${difficultyScale}`} />
-      </ScrollView>
+          <Text style={styles.sectionTitle}>Egzersiz adımları</Text>
+          <ExerciseCarousel exercises={plan.exercises} difficultyBadge={`D${difficultyScale}`} />
 
-      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, spacing.base) }]}>
-        <Button title="Poz Testi" onPress={() => navigation.navigate('CameraTest')} variant="outline" size="md" fullWidth icon="camera-outline" accessibilityLabel="Poz testi aç" />
-        <Button title="Antrenmanı Başlat" onPress={onStartTraining} variant="primary" size="lg" fullWidth icon="play-circle-outline" loading={startSessionMutation.isPending} disabled={startSessionMutation.isPending} accessibilityLabel="Antrenmanı başlat" />
-      </View>
+          <View style={styles.sheetActions}>
+            <Button title="Poz Testi" onPress={() => navigation.navigate('CameraTest')} variant="outline" size="md" fullWidth icon="camera-outline" accessibilityLabel="Poz testi aç" />
+            <Button title="Antrenmanı Başlat" onPress={onStartTraining} variant="primary" size="lg" fullWidth icon="play-circle-outline" loading={startSessionMutation.isPending} disabled={startSessionMutation.isPending} accessibilityLabel="Antrenmanı başlat" />
+          </View>
+        </BottomSheetScrollView>
+      </BottomSheet>
 
       <AppModal visible={showPlanActionsModal} onClose={() => setShowPlanActionsModal(false)} title="Plan İşlemleri" actions={[{ label: 'Planı Sil', variant: 'danger', onPress: () => { setShowPlanActionsModal(false); setShowDeleteConfirmModal(true); } }]} dismissOnBackdrop />
-      <AppModal visible={showDeleteConfirmModal} onClose={() => setShowDeleteConfirmModal(false)} title="Bu planı silmek istediğinize emin misiniz?" description="Bu işlem geri alınamaz." icon="delete-outline" iconColor={colors.error} actions={[{ label: 'İptal', variant: 'ghost', onPress: () => setShowDeleteConfirmModal(false) }, { label: 'Sil', variant: 'danger', onPress: () => { void onDeletePlan(); } }]} autoDismissMs={10000} dismissOnBackdrop />
-    </SafeAreaView>
+      <AppModal visible={showDeleteConfirmModal} onClose={() => setShowDeleteConfirmModal(false)} title="Bu planı silmek istediğinize emin misiniz?" description="Bu işlem geri alınamaz." icon="delete-outline" iconColor={colors.error} actions={[{ label: 'İptal', variant: 'ghost', onPress: () => setShowDeleteConfirmModal(false) }, { label: 'Sil', variant: 'danger', onPress: () => void onDeletePlan() }]} autoDismissMs={10000} dismissOnBackdrop />
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.background },
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { paddingBottom: spacing.base },
+  modalRoot: { flex: 1, backgroundColor: 'transparent' },
+  dimTouch: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  loadingLayer: { flex: 1 },
+  sheetSurface: {
+    borderTopLeftRadius: radius.xxl,
+    borderTopRightRadius: radius.xxl,
+    backgroundColor: colors.background,
+  },
+  sheetHandle: {
+    width: 44,
+    backgroundColor: colors.border,
+  },
+  sheetScrollContent: {
+    paddingBottom: spacing.base,
+  },
+  sheetActions: {
+    gap: spacing.sm,
+    marginTop: spacing.base,
+    paddingHorizontal: spacing.base,
+  },
   errorWrap: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.base },
   hero: { paddingHorizontal: spacing.base, paddingBottom: spacing.lg, borderBottomLeftRadius: radius.xxl, borderBottomRightRadius: radius.xxl },
   heroTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.base },
@@ -381,7 +456,6 @@ const styles = StyleSheet.create({
   analyzableText: { ...typography.captionMedium, color: colors.textMuted },
   analyzableTextActive: { color: colors.success },
   exerciseDescription: { ...typography.bodySm, color: colors.textSecondary, lineHeight: 22 },
-  bottomBar: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingTop: spacing.base, paddingHorizontal: spacing.base, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.borderLight },
 });
 
 export default PlanDetailScreen;

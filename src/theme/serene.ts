@@ -1,0 +1,32 @@
+export const serene = {
+  background: '#faf9f5',
+  surfaceLowest: '#ffffff',
+  surfaceContainerLow: '#f5f4f0',
+  surfaceContainer: '#efeeea',
+  surfaceContainerHigh: '#e9e8e4',
+  primary: '#006a42',
+  onPrimary: '#ffffff',
+  onSurface: '#1b1c1a',
+  onSurfaceVariant: '#3f4942',
+  outlineVariant: '#bec9bf',
+  primaryContainer: '#248458',
+  onPrimaryContainer: '#f6fff5',
+  secondaryFixed: '#ffdbc7',
+  onSecondaryFixedVariant: '#5d412f',
+  tertiaryFixed: '#d0e7e1',
+  onTertiaryFixedVariant: '#364b47',
+  primaryFixed: '#9af6c0',
+  inverseSurface: '#30312e',
+  onInverseSurface: '#f2f1ed',
+  error: '#ba1a1a',
+  onError: '#ffffff',
+  shadowTint: 'rgba(0, 106, 66, 0.12)',
+} as const;
+
+export const sereneLayout = {
+  containerPadding: 24,
+  bentoGap: 12,
+  sectionMargin: 48,
+  cardRadius: 24,
+  pillRadius: 9999,
+} as const;

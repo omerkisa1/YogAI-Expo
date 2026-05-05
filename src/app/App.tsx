@@ -1,6 +1,8 @@
+import 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { QueryClientProvider, focusManager, onlineManager } from '@tanstack/react-query';
@@ -100,15 +102,17 @@ const App = () => {
   if (isLoading) return null;
 
   return (
-    <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
-        <NavigationContainer linking={linking}>
-          <RootNavigator />
-          <OfflineBanner visible={isOffline} />
-        </NavigationContainer>
-        <Toast config={toastConfig} position="top" topOffset={50} />
-      </QueryClientProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <QueryClientProvider client={queryClient}>
+          <NavigationContainer linking={linking}>
+            <RootNavigator />
+            <OfflineBanner visible={isOffline} />
+          </NavigationContainer>
+          <Toast config={toastConfig} position="top" topOffset={50} />
+        </QueryClientProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 };
 

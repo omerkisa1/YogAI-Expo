@@ -8,7 +8,6 @@ import {
   StatusBar,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,8 +35,6 @@ import {
 } from '@/shared/components/SkeletonOverlay';
 import ErrorView from '@/shared/components/ErrorView';
 import LoadingView from '@/shared/components/LoadingView';
-import ProgressBar from '@/shared/components/ProgressBar';
-import Touchable from '@/shared/components/Touchable';
 import type { Exercise } from '@/shared/types/plan';
 import type { RootStackParamList } from '@/navigation/types';
 import type { AnalyzeResult, LandmarkPoint } from '@/lib/poseAnalyzer';
@@ -46,6 +43,7 @@ import { shouldWarnFullBodyLandmarks } from '@/lib/poseVisibilityGuards';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
+import { TrainingSessionHud } from '@/screens/training/TrainingSessionHud';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TrainingSession'>;
 
@@ -68,7 +66,6 @@ const formatTime = (seconds: number): string => {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 };
 
-/** Son kaydedilen skor: son ~5 saniyedeki smoothing’li accuracy örneklerinin ortalaması (throttle ~150ms). */
 function aggregateAccuracyFromSamples(samples: number[], lastFallback: number | null): number {
   if (samples.length === 0) return lastFallback ?? 0;
   const approxPerSec = 1000 / 150;
@@ -95,6 +92,12 @@ const categoryLabelMap: Record<string, string> = {
   supine: 'Sırtüstü',
   inversion: 'Ters',
 };
+
+const ZOOM_PRESETS = [
+  { scale: 0.88, label: 'Uzak' },
+  { scale: 1, label: '1×' },
+  { scale: 1.06, label: 'Yakın' },
+] as const;
 
 const TrainingScreen = ({ route, navigation }: Props) => {
   const { planId, sessionId } = route.params;
@@ -142,6 +145,15 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   const currentExercise = exercises[currentIndex];
   const nextExercise = exercises[currentIndex + 1];
   const planTitle = planQuery.data?.title_tr || planQuery.data?.title_en || 'Antrenman';
+
+  const liveAcc = analyzeResult?.accuracyPercent;
+  const accuracyDisplay = useMemo(() => (liveAcc != null ? `${liveAcc.toFixed(1)}%` : '—'), [liveAcc]);
+  const sessionProgressPct = useMemo(
+    () => (exercises.length > 0 ? (currentIndex / exercises.length) * 100 : 0),
+    [currentIndex, exercises.length],
+  );
+  const onHudQuit = useCallback(() => setShowQuitModal(true), []);
+  const onSelectZoom = useCallback((scale: number) => setPreviewScale(scale), []);
 
   const poseIdForRules = currentExercise?.is_analyzable ? currentExercise.pose_id : null;
 
@@ -520,14 +532,12 @@ const TrainingScreen = ({ route, navigation }: Props) => {
     );
   }
 
-  const liveAcc = analyzeResult?.accuracyPercent;
-
   return (
     <View style={styles.fullScreen} onLayout={onCameraLayout}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
-      {currentExercise.is_analyzable && device ? (
-        <>
+      <View style={styles.cameraLayer} pointerEvents="box-none">
+        {currentExercise.is_analyzable && device ? (
           <View style={styles.cameraClip}>
             {overlaySize.width > 0 && overlaySize.height > 0 ? (
               <View
@@ -572,160 +582,46 @@ const TrainingScreen = ({ route, navigation }: Props) => {
               </View>
             ) : null}
           </View>
-
-          <View style={[styles.cameraControlsRow, { top: insets.top + spacing.sm }]}>
-            <TouchableOpacity
-              style={styles.cameraControlChip}
-              onPress={() => setCameraFacing(f => (f === 'front' ? 'back' : 'front'))}
-              accessibilityRole="button"
-              accessibilityLabel="Kamera çevir"
-            >
-              <MaterialCommunityIcons name="camera-flip-outline" size={20} color={colors.textOnDark} />
-              <Text style={styles.cameraControlChipText}>
-                {cameraFacing === 'front' ? 'Ön' : 'Arka'}
-              </Text>
-            </TouchableOpacity>
-            <View style={styles.zoomChips}>
-              {[
-                { scale: 0.88, label: 'Uzak' },
-                { scale: 1, label: '1×' },
-                { scale: 1.06, label: 'Yakın' },
-              ].map(z => (
-                <TouchableOpacity
-                  key={z.label}
-                  style={[styles.zoomChip, previewScale === z.scale && styles.zoomChipActive]}
-                  onPress={() => setPreviewScale(z.scale)}
-                >
-                  <Text
-                    style={[
-                      styles.zoomChipText,
-                      previewScale === z.scale && styles.zoomChipTextActive,
-                    ]}
-                  >
-                    {z.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          {showFullBodyWarning && (
-            <View style={[styles.fullBodyWarn, { top: insets.top + 120 }]}>
-              <MaterialCommunityIcons name="arrow-expand-all" size={22} color="#1a1a1a" />
-              <Text style={styles.fullBodyWarnText}>
-                Kalça veya dizler net görünmüyor — uzaklaştırın veya tüm vücudu kadraja alın.
-              </Text>
-            </View>
-          )}
-        </>
-      ) : (
-        <CameraView
-          style={StyleSheet.absoluteFill}
-          facing={cameraFacing === 'back' ? 'back' : 'front'}
-          mirror={cameraFacing === 'front'}
-        />
-      )}
-
-      <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]}>
-        <Touchable
-          onPress={() => setShowQuitModal(true)}
-          style={styles.backBtn}
-          borderRadius={radius.full}
-          accessibilityRole="button"
-          accessibilityLabel="Antrenmanı durdur"
-        >
-          <MaterialCommunityIcons name="chevron-left" size={24} color={colors.textOnDark} />
-        </Touchable>
-        <View style={styles.topCenter}>
-          <Text style={styles.topTitle} numberOfLines={1}>
-            {planTitle}
-          </Text>
-          <Text style={styles.topProgress}>
-            {currentIndex + 1}/{exercises.length} poz
-          </Text>
-        </View>
-        <View style={styles.fpsMini}>
-          {currentExercise.is_analyzable ? (
-            <Text style={styles.fpsMiniText}>FPS {fps}</Text>
-          ) : null}
-        </View>
-      </View>
-
-      <View style={styles.progressBarWrap}>
-        <ProgressBar
-          progress={(currentIndex / exercises.length) * 100}
-          color={colors.primary}
-          height={3}
-          animated
-        />
-      </View>
-
-      <View style={styles.timerOverlay}>
-        <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
-      </View>
-
-      <View style={[styles.bottomPanel, { paddingBottom: Math.max(insets.bottom, spacing.base) }]}>
-        <ProgressBar progress={progressPercent} color={colors.primaryLight} height={4} animated />
-
-        {currentExercise.is_analyzable ? (
-          <Text style={styles.accuracyLive}>
-            Canlı skor:{' '}
-            <Text style={styles.accuracyLiveValue}>
-              {liveAcc != null ? `${liveAcc.toFixed(1)}%` : '—'}
-            </Text>
-          </Text>
         ) : (
-          <Text style={styles.noAnalyzeHint}>
-            Bu poz kamera analizi olmadan zamanlanır; skor bu adımda 0 kaydedilir.
-          </Text>
+          <CameraView
+            style={StyleSheet.absoluteFill}
+            facing={cameraFacing === 'back' ? 'back' : 'front'}
+            mirror={cameraFacing === 'front'}
+          />
         )}
-
-        <View style={styles.poseHeaderRow}>
-          <View style={[styles.catBadge, { backgroundColor: `${categoryColor}33` }]}>
-            <Text style={[styles.catBadgeText, { color: categoryColor }]}>{categoryLabel}</Text>
-          </View>
-          <Text style={styles.poseNumber}>
-            {currentIndex + 1}/{exercises.length}
-          </Text>
-        </View>
-
-        <Text style={styles.poseName}>{currentExercise.name_tr || currentExercise.name_en}</Text>
-
-        {currentExercise.instructions_tr || currentExercise.instructions_en ? (
-          <Text style={styles.poseInstruction} numberOfLines={3}>
-            {currentExercise.instructions_tr || currentExercise.instructions_en}
-          </Text>
-        ) : null}
-
-        {nextExercise ? (
-          <Text style={styles.nextLabel}>
-            Sonraki: {nextExercise.name_tr || nextExercise.name_en}
-          </Text>
-        ) : null}
-
-        <View style={styles.bottomActions}>
-          <Button
-            title="Pozu Tamamla"
-            onPress={() => void handlePoseComplete(false)}
-            variant="primary"
-            size="lg"
-            fullWidth
-            icon="check-circle-outline"
-            loading={isSubmitting}
-            disabled={isSubmitting}
-            accessibilityLabel="Pozu tamamla"
-          />
-          <Button
-            title="Pozu Atla"
-            onPress={() => void handlePoseComplete(true)}
-            variant="ghost"
-            size="md"
-            fullWidth
-            disabled={isSubmitting}
-            accessibilityLabel="Pozu atla"
-          />
-        </View>
       </View>
+
+      <TrainingSessionHud
+        topInset={insets.top}
+        bottomInset={insets.bottom}
+        planTitle={planTitle}
+        exerciseIndex={currentIndex}
+        exerciseCount={exercises.length}
+        fps={fps}
+        showFps={currentExercise.is_analyzable}
+        onQuitPress={onHudQuit}
+        showCameraControls={Boolean(currentExercise.is_analyzable && device)}
+        cameraFacing={cameraFacing}
+        onFlipCamera={() => setCameraFacing(f => (f === 'front' ? 'back' : 'front'))}
+        previewScale={previewScale}
+        zoomPresets={ZOOM_PRESETS}
+        onSelectZoom={onSelectZoom}
+        showFullBodyWarning={showFullBodyWarning}
+        sessionProgressPct={sessionProgressPct}
+        timerText={formatTime(timeLeft)}
+        poseProgressPct={progressPercent}
+        accuracyDisplay={accuracyDisplay}
+        showAccuracy={currentExercise.is_analyzable}
+        showNoAnalyzeHint={!currentExercise.is_analyzable}
+        categoryLabel={categoryLabel}
+        categoryColor={categoryColor}
+        poseName={currentExercise.name_tr || currentExercise.name_en}
+        instruction={currentExercise.instructions_tr || currentExercise.instructions_en || null}
+        nextPoseName={nextExercise ? nextExercise.name_tr || nextExercise.name_en || null : null}
+        onCompletePose={() => void handlePoseComplete(false)}
+        onSkipPose={() => void handlePoseComplete(true)}
+        submitting={isSubmitting}
+      />
 
       <AppModal
         visible={showQuitModal}
@@ -747,6 +643,10 @@ const TrainingScreen = ({ route, navigation }: Props) => {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   fullScreen: { flex: 1, backgroundColor: '#000' },
+  cameraLayer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
+  },
   errorWrap: {
     flex: 1,
     justifyContent: 'center',
@@ -764,129 +664,6 @@ const styles = StyleSheet.create({
   cameraZoomInner: {
     position: 'absolute',
   },
-  cameraControlsRow: {
-    position: 'absolute',
-    right: spacing.base,
-    left: spacing.base,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    zIndex: 2,
-  },
-  cameraControlChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-  },
-  cameraControlChipText: {
-    ...typography.captionMedium,
-    color: colors.textOnDark,
-  },
-  zoomChips: { flexDirection: 'row', gap: spacing.xs },
-  zoomChip: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-  },
-  zoomChipActive: {
-    backgroundColor: 'rgba(45,139,94,0.85)',
-    borderColor: 'rgba(255,255,255,0.45)',
-  },
-  zoomChipText: {
-    ...typography.captionMedium,
-    color: 'rgba(255,255,255,0.85)',
-  },
-  zoomChipTextActive: { color: colors.textOnDark },
-  fullBodyWarn: {
-    position: 'absolute',
-    left: spacing.base,
-    right: spacing.base,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    backgroundColor: 'rgba(255, 224, 130, 0.95)',
-    borderRadius: radius.md,
-    padding: spacing.base,
-    borderWidth: 2,
-    borderColor: 'rgba(200, 138, 0, 0.65)',
-    zIndex: 3,
-  },
-  fullBodyWarnText: {
-    ...typography.bodySmMedium,
-    color: '#1a1a1a',
-    flex: 1,
-    lineHeight: 20,
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.base,
-    paddingBottom: spacing.sm,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  backBtn: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: radius.full,
-  },
-  topCenter: { flex: 1, alignItems: 'center', paddingHorizontal: spacing.sm },
-  topTitle: { ...typography.bodySmMedium, color: colors.textOnDark },
-  topProgress: { ...typography.caption, color: 'rgba(255,255,255,0.7)' },
-  fpsMini: { width: 44, alignItems: 'flex-end' },
-  fpsMiniText: { ...typography.caption, color: 'rgba(255,255,255,0.75)' },
-  progressBarWrap: { marginHorizontal: spacing.base, marginBottom: spacing.xs },
-  timerOverlay: {
-    position: 'absolute',
-    top: '22%',
-    alignSelf: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-  },
-  timerText: {
-    ...typography.h1,
-    color: colors.textOnDark,
-    fontVariant: Platform.OS === 'ios' ? ['tabular-nums'] : undefined,
-  },
-  bottomPanel: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.78)',
-    paddingHorizontal: spacing.base,
-    paddingTop: spacing.base,
-    borderTopLeftRadius: radius.xxl,
-    borderTopRightRadius: radius.xxl,
-    gap: spacing.sm,
-    maxHeight: '46%',
-  },
-  accuracyLive: { ...typography.bodySm, color: 'rgba(255,255,255,0.75)' },
-  accuracyLiveValue: { ...typography.bodySmMedium, color: colors.primaryLight },
-  noAnalyzeHint: { ...typography.caption, color: 'rgba(255,255,255,0.55)', lineHeight: 18 },
-  poseHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  catBadge: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.full },
-  catBadgeText: { ...typography.captionMedium },
-  poseNumber: { ...typography.caption, color: 'rgba(255,255,255,0.6)' },
-  poseName: { ...typography.h3, color: colors.textOnDark },
-  poseInstruction: { ...typography.bodySm, color: 'rgba(255,255,255,0.75)', lineHeight: 20 },
-  nextLabel: { ...typography.caption, color: 'rgba(255,255,255,0.5)' },
-  bottomActions: { gap: spacing.xs },
   completedContent: {
     flexGrow: 1,
     backgroundColor: colors.background,

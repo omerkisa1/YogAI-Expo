@@ -16,6 +16,7 @@ import Touchable from '@/shared/components/Touchable';
 import type { Goal } from '@/shared/types/profile';
 import type { Injury, Level } from '@/shared/types/plan';
 import type { RootStackParamList } from '@/navigation/types';
+import { TAB_SCENE_BOTTOM_PADDING } from '@/navigation/tabBarMetrics';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
@@ -141,7 +142,7 @@ const ProfileScreen = () => {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   container: { flex: 1, backgroundColor: colors.background },
-  content: { paddingHorizontal: spacing.base, paddingBottom: spacing.xxl, gap: spacing.base },
+  content: { paddingHorizontal: spacing.base, paddingBottom: TAB_SCENE_BOTTOM_PADDING + spacing.xxl, gap: spacing.base },
   topActionsRow: { alignItems: 'flex-end', paddingTop: spacing.sm },
   logoutIconButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.errorSoft },
   errorWrap: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.base },

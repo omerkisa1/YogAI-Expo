@@ -16,6 +16,7 @@ import SkeletonLoader from '@/shared/components/SkeletonLoader';
 import Touchable from '@/shared/components/Touchable';
 import type { Plan } from '@/shared/types/plan';
 import type { RootStackParamList } from '@/navigation/types';
+import { TAB_SCENE_BOTTOM_PADDING } from '@/navigation/tabBarMetrics';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
 import { shadows } from '@/theme/shadows';
@@ -195,7 +196,7 @@ const styles = StyleSheet.create({
   filterChipLabel: { ...typography.bodySmMedium },
   filterChipLabelSelected: { color: colors.textOnPrimary },
   filterChipLabelUnselected: { color: colors.textSecondary },
-  listContent: { paddingHorizontal: spacing.base, paddingBottom: spacing.huge + spacing.huge, gap: spacing.sm },
+  listContent: { paddingHorizontal: spacing.base, paddingBottom: TAB_SCENE_BOTTOM_PADDING + spacing.huge + spacing.huge, gap: spacing.sm },
   listFooterBottom: { height: spacing.md },
   fab: { position: 'absolute', right: spacing.xl, bottom: spacing.xl, width: 56, height: 56, borderRadius: radius.lg, overflow: 'hidden', ...shadows.lg },
   fabGradient: { width: '100%', height: '100%', borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' },

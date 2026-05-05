@@ -50,10 +50,28 @@ const AuthenticatedNavigator = () => {
       })}
     >
       <Stack.Screen name="MainTabs" component={MainTabs} options={{ headerShown: false }} />
-      <Stack.Screen name="PlanDetail" component={PlanDetailScreen} options={{ headerShown: false }} />
+      <Stack.Screen
+        name="PlanDetail"
+        component={PlanDetailScreen}
+        options={{
+          headerShown: false,
+          presentation: 'transparentModal',
+          animation: 'fade',
+          contentStyle: { backgroundColor: 'transparent' },
+        }}
+      />
       <Stack.Screen name="CreatePlan" component={CreatePlanScreen} options={{ title: 'Plan Oluştur' }} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} options={{ title: 'Profili Düzenle' }} />
-      <Stack.Screen name="TrainingSession" component={TrainingScreen} options={{ title: 'Antrenman' }} />
+      <Stack.Screen
+        name="TrainingSession"
+        component={TrainingScreen}
+        options={{
+          headerShown: false,
+          animation: 'fade',
+          contentStyle: { backgroundColor: '#000' },
+          statusBarTranslucent: true,
+        }}
+      />
       <Stack.Screen name="CameraTest" component={CameraTestScreen} options={{ headerShown: false, presentation: 'fullScreenModal' }} />
       <Stack.Screen name="TrainingSessionDetail" component={TrainingSessionDetailScreen} options={{ headerShown: false }} />
     </Stack.Navigator>

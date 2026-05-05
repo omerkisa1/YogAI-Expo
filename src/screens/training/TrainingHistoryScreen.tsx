@@ -13,6 +13,7 @@ import SkeletonLoader from '@/shared/components/SkeletonLoader';
 import Touchable from '@/shared/components/Touchable';
 import type { TrainingSession } from '@/shared/types/training';
 import type { RootStackParamList } from '@/navigation/types';
+import { TAB_SCENE_BOTTOM_PADDING } from '@/navigation/tabBarMetrics';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
@@ -177,7 +178,7 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   loadingWrap: { paddingHorizontal: spacing.base, paddingTop: spacing.base, gap: spacing.sm },
   errorWrap: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.base },
-  listContent: { paddingHorizontal: spacing.base, paddingBottom: spacing.xxl, gap: spacing.sm },
+  listContent: { paddingHorizontal: spacing.base, paddingBottom: TAB_SCENE_BOTTOM_PADDING + spacing.xxl, gap: spacing.sm },
   listFooter: { height: spacing.sm },
   pageTitle: { ...typography.h2, color: colors.text, marginTop: spacing.sm, marginBottom: spacing.sm },
   heroCard: { padding: spacing.xl, borderRadius: radius.xl, gap: spacing.sm, marginBottom: spacing.base, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)' },
