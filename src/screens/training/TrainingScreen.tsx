@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
-import { CameraView } from 'expo-camera';
 import {
   Camera,
   useCameraDevice,
@@ -23,9 +22,11 @@ import type { Orientation } from 'react-native-vision-camera';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { usePlan } from '@/features/plans/hooks/usePlan';
+import { useProfile } from '@/features/profile/hooks/useProfile';
 import { usePoseDetailAndRules } from '@/features/pose/usePoseDetailAndRules';
 import { usePoseVisionPipeline } from '@/features/pose/usePoseVisionPipeline';
-import { useCompleteTrainingSession, useSubmitPose } from '@/features/training/hooks/useTraining';
+import { useCompleteTrainingSession, useStartTrainingSession, useSubmitPose } from '@/features/training/hooks/useTraining';
+import Toast from 'react-native-toast-message';
 import AppModal from '@/shared/components/AppModal';
 import Button from '@/shared/components/Button';
 import {
@@ -106,8 +107,11 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   const { hasPermission, requestPermission } = useCameraPermission();
 
   const planQuery = usePlan(planId);
+  const profileQuery = useProfile();
+  const locale = profileQuery.data?.preferred_language ?? 'tr';
   const submitPoseMutation = useSubmitPose();
   const completeSessionMutation = useCompleteTrainingSession();
+  const startSessionMutation = useStartTrainingSession();
 
   const [screenState, setScreenState] = useState<ScreenState>('posing');
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -144,7 +148,9 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   const exercises = planQuery.data?.exercises ?? [];
   const currentExercise = exercises[currentIndex];
   const nextExercise = exercises[currentIndex + 1];
-  const planTitle = planQuery.data?.title_tr || planQuery.data?.title_en || 'Antrenman';
+  const planTitle = locale === 'tr'
+    ? (planQuery.data?.title_tr || planQuery.data?.title_en || 'Antrenman')
+    : (planQuery.data?.title_en || planQuery.data?.title_tr || 'Workout');
 
   const liveAcc = analyzeResult?.accuracyPercent;
   const accuracyDisplay = useMemo(() => (liveAcc != null ? `${liveAcc.toFixed(1)}%` : '—'), [liveAcc]);
@@ -328,6 +334,20 @@ const TrainingScreen = ({ route, navigation }: Props) => {
     navigation.goBack();
   };
 
+  const handleRetry = async () => {
+    try {
+      const newSession = await startSessionMutation.mutateAsync(planId);
+      navigation.replace('TrainingSession', { planId, sessionId: newSession.session_id ?? '' });
+    } catch (error: unknown) {
+      const axiosError = error as { response?: { status?: number } };
+      if (axiosError?.response?.status === 409) {
+        Toast.show({ type: 'info', text1: 'Devam eden antrenmanınız var' });
+      } else {
+        Toast.show({ type: 'error', text1: 'Antrenman başlatılamadı' });
+      }
+    }
+  };
+
   const previewScaleSafe = Math.max(previewScale, 0.05);
   const previewInnerW =
     overlaySize.width > 0 ? overlaySize.width / previewScaleSafe : 0;
@@ -469,7 +489,7 @@ const TrainingScreen = ({ route, navigation }: Props) => {
                 <View style={styles.resultLeft}>
                   <MaterialCommunityIcons name="check-circle" size={18} color={colors.success} />
                   <Text style={styles.resultName} numberOfLines={1}>
-                    {r.exercise.name_tr || r.exercise.name_en}
+                    {locale === 'tr' ? (r.exercise.name_tr || r.exercise.name_en) : (r.exercise.name_en || r.exercise.name_tr)}
                   </Text>
                 </View>
                 <View style={styles.resultRight}>
@@ -494,7 +514,7 @@ const TrainingScreen = ({ route, navigation }: Props) => {
             />
             <Button
               title="Antrenmanı Tekrarla"
-              onPress={() => navigation.replace('TrainingSession', { planId, sessionId })}
+              onPress={() => void handleRetry()}
               variant="outline"
               size="lg"
               fullWidth
@@ -583,11 +603,17 @@ const TrainingScreen = ({ route, navigation }: Props) => {
             ) : null}
           </View>
         ) : (
-          <CameraView
-            style={StyleSheet.absoluteFill}
-            facing={cameraFacing === 'back' ? 'back' : 'front'}
-            mirror={cameraFacing === 'front'}
-          />
+          <View style={styles.nonAnalyzableContainer}>
+            <MaterialCommunityIcons name="yoga" size={64} color={colors.primaryLight} />
+            <Text style={styles.nonAnalyzablePoseName}>
+              {locale === 'tr' ? (currentExercise.name_tr || currentExercise.name_en) : (currentExercise.name_en || currentExercise.name_tr)}
+            </Text>
+            {(currentExercise.instructions_tr || currentExercise.instructions_en) ? (
+              <Text style={styles.nonAnalyzableInstructions}>
+                {locale === 'tr' ? (currentExercise.instructions_tr || currentExercise.instructions_en) : (currentExercise.instructions_en || currentExercise.instructions_tr)}
+              </Text>
+            ) : null}
+          </View>
         )}
       </View>
 
@@ -615,9 +641,9 @@ const TrainingScreen = ({ route, navigation }: Props) => {
         showNoAnalyzeHint={!currentExercise.is_analyzable}
         categoryLabel={categoryLabel}
         categoryColor={categoryColor}
-        poseName={currentExercise.name_tr || currentExercise.name_en}
-        instruction={currentExercise.instructions_tr || currentExercise.instructions_en || null}
-        nextPoseName={nextExercise ? nextExercise.name_tr || nextExercise.name_en || null : null}
+        poseName={locale === 'tr' ? (currentExercise.name_tr || currentExercise.name_en) : (currentExercise.name_en || currentExercise.name_tr)}
+        instruction={locale === 'tr' ? (currentExercise.instructions_tr || currentExercise.instructions_en || null) : (currentExercise.instructions_en || currentExercise.instructions_tr || null)}
+        nextPoseName={nextExercise ? (locale === 'tr' ? (nextExercise.name_tr || nextExercise.name_en || null) : (nextExercise.name_en || nextExercise.name_tr || null)) : null}
         onCompletePose={() => void handlePoseComplete(false)}
         onSkipPose={() => void handlePoseComplete(true)}
         submitting={isSubmitting}
@@ -713,6 +739,16 @@ const styles = StyleSheet.create({
   resultScore: { ...typography.bodySmMedium, color: colors.primary },
   resultDur: { ...typography.caption, color: colors.textMuted },
   completedActions: { width: '100%', gap: spacing.sm, marginTop: spacing.sm },
+  nonAnalyzableContainer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#1a1a2e',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xl,
+    gap: spacing.base,
+  },
+  nonAnalyzablePoseName: { ...typography.h2, color: '#fff', textAlign: 'center' },
+  nonAnalyzableInstructions: { ...typography.body, color: 'rgba(255,255,255,0.75)', textAlign: 'center' },
 });
 
 export default TrainingScreen;

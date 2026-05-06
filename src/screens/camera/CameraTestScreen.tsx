@@ -25,6 +25,7 @@ import {
 import type { Orientation } from 'react-native-vision-camera';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import { useProfile } from '@/features/profile/hooks/useProfile';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import api from '@/shared/api/axiosInstance';
@@ -160,6 +161,8 @@ type RuleListIconName =
 const CameraTestScreen = ({ navigation }: Props) => {
   const insets = useSafeAreaInsets();
   const { hasPermission, requestPermission } = useCameraPermission();
+  const profileQuery = useProfile();
+  const locale = profileQuery.data?.preferred_language ?? 'tr';
 
   const [screenState, setScreenState] = useState<ScreenState>('pose_selection');
   const [selectedPoseId, setSelectedPoseId] = useState<string | null>(null);
@@ -510,7 +513,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
           <Text style={styles.completedTitle}>Poz Tamamlandı!</Text>
           {selectedPose && (
             <Text style={styles.completedPoseName}>
-              {selectedPose.name_tr || selectedPose.name_en}
+              {locale === 'tr' ? (selectedPose.name_tr || selectedPose.name_en) : (selectedPose.name_en || selectedPose.name_tr)}
             </Text>
           )}
           <Text style={styles.completedDuration}>Süre: {POSE_DURATION} saniye</Text>
@@ -740,7 +743,9 @@ const CameraTestScreen = ({ navigation }: Props) => {
                       : rule.status === 'low_visibility'
                         ? 'eye-off'
                         : 'close-circle';
-                const feedback = rule.feedbackTr ?? rule.feedbackEn ?? '';
+                const feedback = locale === 'tr'
+                  ? (rule.feedbackTr || rule.feedbackEn || '')
+                  : (rule.feedbackEn || rule.feedbackTr || '');
                 return (
                   <View key={rule.ruleId} style={[styles.ruleRow, { borderLeftColor: border }]}>
                     <View style={styles.ruleRowHeader}>
@@ -818,7 +823,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
           {selectedPose && (
             <View style={styles.activeFooter}>
               <Text style={styles.activePoseName} numberOfLines={1}>
-                Poz: {selectedPose.name_tr || selectedPose.name_en}
+                Poz: {locale === 'tr' ? (selectedPose.name_tr || selectedPose.name_en) : (selectedPose.name_en || selectedPose.name_tr)}
               </Text>
               <Button
                 title="Durdur"
@@ -896,12 +901,12 @@ const CameraTestScreen = ({ navigation }: Props) => {
               ) : selectedPose ? (
                 <>
                   <Text style={styles.instructionCardTitle}>
-                    {selectedPose.name_tr || selectedPose.name_en}
+                    {locale === 'tr' ? (selectedPose.name_tr || selectedPose.name_en) : (selectedPose.name_en || selectedPose.name_tr)}
                   </Text>
                   <DifficultyDots level={selectedPose.difficulty} />
                   {(selectedPose.instructions_tr || selectedPose.instructions_en) ? (
                     <Text style={styles.instructionCardBodyFull}>
-                      {selectedPose.instructions_tr || selectedPose.instructions_en}
+                      {locale === 'tr' ? (selectedPose.instructions_tr || selectedPose.instructions_en) : (selectedPose.instructions_en || selectedPose.instructions_tr)}
                     </Text>
                   ) : (
                     <Text style={styles.instructionCardBody}>Bu poz için talimat metni yok.</Text>
@@ -963,11 +968,11 @@ const CameraTestScreen = ({ navigation }: Props) => {
                   onPress={() => setSelectedPoseId(pose.pose_id)}
                   style={[styles.chip, isSelected && styles.chipSelected]}
                   accessibilityRole="button"
-                  accessibilityLabel={pose.name_tr || pose.name_en}
+                  accessibilityLabel={locale === 'tr' ? (pose.name_tr || pose.name_en) : (pose.name_en || pose.name_tr)}
                   accessibilityState={{ selected: isSelected }}
                 >
                   <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
-                    {pose.name_tr || pose.name_en}
+                    {locale === 'tr' ? (pose.name_tr || pose.name_en) : (pose.name_en || pose.name_tr)}
                   </Text>
                 </TouchableOpacity>
               );
