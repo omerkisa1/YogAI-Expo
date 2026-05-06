@@ -1,5 +1,5 @@
 import api from '@/shared/api/axiosInstance';
-import type { CreatePlanRequest, Exercise, FocusArea, Level, Plan, PlanMetaUpdate } from '@/shared/types/plan';
+import type { CreatePlanRequest, CustomPlanRequest, CustomPlanResponse, Exercise, FocusArea, Level, Plan, PlanMetaUpdate } from '@/shared/types/plan';
 
 type ApiWrapper<T> = { status: number; message: string; data: T };
 type RawPlan = Record<string, unknown>;
@@ -38,6 +38,7 @@ const mapPlan = (raw: RawPlan): Plan => {
     pin: (raw.is_pinned ?? false) as boolean,
     created_at: raw.created_at as string | undefined,
     exercises: ((detail.exercises ?? []) as Exercise[]),
+    source: (raw.source as 'ai' | 'custom' | undefined),
   };
 };
 
@@ -90,4 +91,15 @@ export const planService = {
   deletePlan: (id: string) =>
     api.delete<{ success: boolean }>(`/api/v1/yoga/plans/${id}`)
       .then(r => r.data),
+
+  createCustomPlan: async (data: CustomPlanRequest): Promise<CustomPlanResponse> => {
+    type Wrapper = { status: number; message: string; data: { plan: RawPlan; warnings?: string[] } };
+    const r = await api.post<Wrapper>('/api/v1/yoga/plans/custom', data);
+    const raw = r.data.data;
+    const planRaw = (raw.plan as RawPlan) ?? (raw as RawPlan);
+    return {
+      plan: extractPlan(planRaw),
+      warnings: raw.warnings,
+    };
+  },
 };

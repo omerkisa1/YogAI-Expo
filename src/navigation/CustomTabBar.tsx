@@ -22,6 +22,7 @@ interface TabMeta {
 const tabMetaMap: Record<keyof MainTabParamList, TabMeta> = {
   Home: { label: 'Ana Sayfa', activeIcon: 'home', inactiveIcon: 'home-outline' },
   Plans: { label: 'Planlar', activeIcon: 'calendar-text', inactiveIcon: 'calendar-text-outline' },
+  Explore: { label: 'Keşfet', activeIcon: 'compass', inactiveIcon: 'compass-outline' },
   Training: { label: 'Antrenman', activeIcon: 'yoga', inactiveIcon: 'yoga' },
   Profile: { label: 'Profil', activeIcon: 'account', inactiveIcon: 'account-outline' },
 };

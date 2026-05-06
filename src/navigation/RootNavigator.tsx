@@ -12,6 +12,9 @@ import EditProfileScreen from '@/screens/profile/EditProfileScreen';
 import TrainingScreen from '@/screens/training/TrainingScreen';
 import CameraTestScreen from '@/screens/camera/CameraTestScreen';
 import TrainingSessionDetailScreen from '@/screens/training/TrainingSessionDetailScreen';
+import PoseDetailScreen from '@/screens/explore/PoseDetailScreen';
+import CreateCustomPlanScreen from '@/screens/explore/CreateCustomPlanScreen';
+import SelectPosesForPlanScreen from '@/screens/explore/SelectPosesForPlanScreen';
 import { colors } from '@/theme/colors';
 import { spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
@@ -74,6 +77,9 @@ const AuthenticatedNavigator = () => {
       />
       <Stack.Screen name="CameraTest" component={CameraTestScreen} options={{ headerShown: false, presentation: 'fullScreenModal' }} />
       <Stack.Screen name="TrainingSessionDetail" component={TrainingSessionDetailScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="PoseDetail" component={PoseDetailScreen} options={{ title: 'Hareket Detayı' }} />
+      <Stack.Screen name="CreateCustomPlan" component={CreateCustomPlanScreen} options={{ title: 'Özel Antrenman' }} />
+      <Stack.Screen name="SelectPosesForPlan" component={SelectPosesForPlanScreen} options={{ title: 'Hareket Seç', presentation: 'modal' }} />
     </Stack.Navigator>
   );
 };

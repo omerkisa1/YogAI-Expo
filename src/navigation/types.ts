@@ -9,6 +9,7 @@ export type AuthStackParamList = {
 export type MainTabParamList = {
   Home: undefined;
   Plans: undefined;
+  Explore: undefined;
   Training: undefined;
   Profile: undefined;
 };
@@ -31,4 +32,7 @@ export type RootStackParamList = {
   TrainingSession: { planId: string; sessionId: string };
   CameraTest: undefined;
   TrainingSessionDetail: { sessionId: string };
+  PoseDetail: { poseId: string };
+  CreateCustomPlan: { addPoseId?: string; selectedPoseIds?: string[] } | undefined;
+  SelectPosesForPlan: { currentPoseIds: string[] };
 };

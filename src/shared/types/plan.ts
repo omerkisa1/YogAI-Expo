@@ -55,6 +55,22 @@ export interface Plan {
   created_at?: string;
   updated_at?: string;
   exercises: Exercise[];
+  source?: 'ai' | 'custom';
+}
+
+export interface CustomPlanExercise {
+  pose_id: string;
+  duration_min: number;
+}
+
+export interface CustomPlanRequest {
+  title: string;
+  exercises: CustomPlanExercise[];
+}
+
+export interface CustomPlanResponse {
+  plan: Plan;
+  warnings?: string[];
 }
 
 export interface CreatePlanRequest {
