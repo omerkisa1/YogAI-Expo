@@ -48,7 +48,8 @@
     "@types/react": "~19.1.0",
     "babel-preset-expo": "~54.0.10",
     "patch-package": "^8.0.1",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "@react-native-community/cli": "latest"
   },
   "private": true
 }
