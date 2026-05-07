@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
+  FlatList,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
-  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -13,6 +12,7 @@ import {
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCreateCustomPlan } from '@/features/plans/hooks/useCreateCustomPlan';
@@ -28,14 +28,23 @@ import { typography } from '@/theme/typography';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateCustomPlan'>;
 
-interface SelectedExercise {
+interface SelectedPose {
   pose: Pose;
   duration_min: number;
 }
 
-type ApiWrapper<T> = { status: number; message: string; data: T };
+type CategoryFilter = 'all' | 'standing' | 'seated' | 'prone' | 'supine' | 'inversion';
 
-const categoryColorMap: Record<string, string> = {
+const CATEGORY_OPTIONS: { key: CategoryFilter; label: string }[] = [
+  { key: 'all', label: 'Tümü' },
+  { key: 'standing', label: 'Ayakta' },
+  { key: 'seated', label: 'Oturarak' },
+  { key: 'prone', label: 'Yüzüstü' },
+  { key: 'supine', label: 'Sırtüstü' },
+  { key: 'inversion', label: 'Ters' },
+];
+
+const CATEGORY_COLOR: Record<string, string> = {
   standing: colors.categoryStanding,
   seated: colors.categorySeated,
   prone: colors.categoryProne,
@@ -43,32 +52,19 @@ const categoryColorMap: Record<string, string> = {
   inversion: colors.categoryInversion,
 };
 
-const INJURY_CONTRAINDICATION_MAP: Record<string, string[]> = {
-  knee_injury:      ['knee_injury'],
-  ankle_injury:     ['ankle_injury'],
-  herniated_disc:   ['herniated_disc'],
-  low_back_pain:    ['low_back_pain'],
-  shoulder_injury:  ['shoulder_injury'],
-  wrist_injury:     ['wrist_injury'],
-  neck_injury:      ['neck_injury'],
-  groin_injury:     ['groin_injury'],
-  hip_injury:       ['hip_injury'],
+const INJURY_CONTRAINDICATIONS: Record<string, string[]> = {
+  knee_injury: ['knee_injury'],
+  ankle_injury: ['ankle_injury'],
+  herniated_disc: ['herniated_disc'],
+  low_back_pain: ['low_back_pain'],
+  shoulder_injury: ['shoulder_injury'],
+  wrist_injury: ['wrist_injury'],
+  neck_injury: ['neck_injury'],
+  groin_injury: ['groin_injury'],
+  hip_injury: ['hip_injury'],
 };
 
-function computeWarnings(exercises: SelectedExercise[], injuries: string[]): string[] {
-  if (!injuries.length || !exercises.length) return [];
-  const injurySet = new Set(injuries.flatMap(inj => INJURY_CONTRAINDICATION_MAP[inj] ?? [inj]));
-  const warnings: string[] = [];
-  for (const ex of exercises) {
-    for (const ci of ex.pose.contraindications ?? []) {
-      if (injurySet.has(ci)) {
-        warnings.push(`"${ex.pose.name_tr || ex.pose.name_en}" hareketi mevcut sağlık durumunuzla dikkat gerektirebilir.`);
-        break;
-      }
-    }
-  }
-  return warnings;
-}
+type ApiWrapper<T> = { status: number; message: string; data: T };
 
 const CreateCustomPlanScreen = ({ route, navigation }: Props) => {
   const profileQuery = useProfile();
@@ -77,7 +73,10 @@ const CreateCustomPlanScreen = ({ route, navigation }: Props) => {
   const createMutation = useCreateCustomPlan();
 
   const [title, setTitle] = useState('');
-  const [exercises, setExercises] = useState<SelectedExercise[]>([]);
+  const [titleTouched, setTitleTouched] = useState(false);
+  const [selected, setSelected] = useState<Map<string, SelectedPose>>(new Map());
+  const [search, setSearch] = useState('');
+  const [activeCategory, setActiveCategory] = useState<CategoryFilter>('all');
 
   const posesQuery = useQuery<Pose[]>({
     queryKey: ['all-poses'],
@@ -86,229 +85,268 @@ const CreateCustomPlanScreen = ({ route, navigation }: Props) => {
     staleTime: 10 * 60 * 1000,
   });
 
-  const poseMap = useMemo(() => {
-    const m = new Map<string, Pose>();
-    for (const p of posesQuery.data ?? []) m.set(p.pose_id, p);
-    return m;
-  }, [posesQuery.data]);
-
-  // addPoseId param — gelen tek poz ekle
+  // addPoseId param — PoseDetailScreen'den gelen tek poz ön seçimi
   const handledAddPoseRef = useRef<string | null>(null);
   useEffect(() => {
     const addPoseId = route.params?.addPoseId;
     if (!addPoseId || addPoseId === handledAddPoseRef.current) return;
     handledAddPoseRef.current = addPoseId;
-    const pose = poseMap.get(addPoseId);
+    const pose = (posesQuery.data ?? []).find(p => p.pose_id === addPoseId);
     if (!pose) return;
-    setExercises(prev => {
-      if (prev.some(e => e.pose.pose_id === addPoseId)) return prev;
-      return [...prev, { pose, duration_min: 3 }];
+    setSelected(prev => {
+      if (prev.has(addPoseId)) return prev;
+      const next = new Map(prev);
+      next.set(addPoseId, { pose, duration_min: 3 });
+      return next;
     });
-  }, [route.params?.addPoseId, poseMap]);
+  }, [route.params?.addPoseId, posesQuery.data]);
 
-  // selectedPoseIds param — SelectPosesForPlan'dan dönen seçim
-  const handledSelectedRef = useRef<string | null>(null);
-  useEffect(() => {
-    const ids = route.params?.selectedPoseIds;
-    if (!ids || !ids.length) return;
-    const key = ids.join(',');
-    if (key === handledSelectedRef.current) return;
-    handledSelectedRef.current = key;
-    setExercises(prev => {
-      const existing = new Set(prev.map(e => e.pose.pose_id));
-      const toAdd: SelectedExercise[] = [];
-      for (const id of ids) {
-        if (existing.has(id)) continue;
-        const pose = poseMap.get(id);
-        if (pose) toAdd.push({ pose, duration_min: 3 });
+  const filteredPoses = useMemo(() => {
+    const all = (posesQuery.data ?? []).filter(p => !p.pose_id.startsWith('test_'));
+    return all.filter(p => {
+      if (activeCategory !== 'all' && p.category !== activeCategory) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        if (!p.name_tr.toLowerCase().includes(q) && !p.name_en.toLowerCase().includes(q)) return false;
       }
-      return [...prev, ...toAdd];
+      return true;
     });
-  }, [route.params?.selectedPoseIds, poseMap]);
+  }, [posesQuery.data, activeCategory, search]);
+
+  const togglePose = useCallback((pose: Pose) => {
+    setSelected(prev => {
+      const next = new Map(prev);
+      if (next.has(pose.pose_id)) {
+        next.delete(pose.pose_id);
+      } else {
+        next.set(pose.pose_id, { pose, duration_min: 3 });
+      }
+      return next;
+    });
+  }, []);
 
   const updateDuration = useCallback((poseId: string, delta: number) => {
-    setExercises(prev =>
-      prev.map(e =>
-        e.pose.pose_id === poseId
-          ? { ...e, duration_min: Math.max(1, Math.min(10, e.duration_min + delta)) }
-          : e,
-      ),
-    );
+    setSelected(prev => {
+      const entry = prev.get(poseId);
+      if (!entry) return prev;
+      const next = new Map(prev);
+      next.set(poseId, { ...entry, duration_min: Math.max(1, Math.min(10, entry.duration_min + delta)) });
+      return next;
+    });
   }, []);
 
-  const removeExercise = useCallback((poseId: string) => {
-    setExercises(prev => prev.filter(e => e.pose.pose_id !== poseId));
-  }, []);
+  const selectedList = useMemo(() => [...selected.values()], [selected]);
+  const totalDuration = useMemo(() => selectedList.reduce((s, e) => s + e.duration_min, 0), [selectedList]);
 
-  const totalDuration = useMemo(() => exercises.reduce((s, e) => s + e.duration_min, 0), [exercises]);
-  const analyzableCount = useMemo(() => exercises.filter(e => e.pose.is_analyzable).length, [exercises]);
-  const warnings = useMemo(() => computeWarnings(exercises, injuries), [exercises, injuries]);
+  const injurySet = useMemo(
+    () => new Set(injuries.flatMap(inj => INJURY_CONTRAINDICATIONS[inj] ?? [inj])),
+    [injuries],
+  );
 
-  const canSave = title.trim().length > 0 && exercises.length > 0 && !createMutation.isPending;
+  const warnings = useMemo(() => {
+    if (!injurySet.size) return [];
+    return selectedList
+      .filter(e => e.pose.contraindications?.some(ci => injurySet.has(ci)))
+      .map(e => `"${locale === 'tr' ? e.pose.name_tr : e.pose.name_en}" dikkat gerektirebilir`);
+  }, [selectedList, injurySet, locale]);
 
   const handleSave = async () => {
-    if (!canSave) return;
+    if (title.trim().length === 0) {
+      setTitleTouched(true);
+      Toast.show({ type: 'info', text1: 'Antrenman adı gerekli', text2: 'Lütfen bir isim girin.' });
+      return;
+    }
+    if (selectedList.length === 0) {
+      Toast.show({ type: 'info', text1: 'Hareket seçilmedi', text2: 'En az 1 hareket seçin.' });
+      return;
+    }
+    if (createMutation.isPending) return;
+
     try {
       await createMutation.mutateAsync({
         title: title.trim(),
-        exercises: exercises.map(e => ({ pose_id: e.pose.pose_id, duration_min: e.duration_min })),
+        exercises: selectedList.map(e => ({ pose_id: e.pose.pose_id, duration_min: e.duration_min })),
       });
-      Toast.show({ type: 'success', text1: 'Antrenman kaydedildi!' });
-      navigation.navigate('MainTabs', { screen: 'Plans' });
-    } catch {
-      Toast.show({ type: 'error', text1: 'Kayıt başarısız', text2: 'Lütfen tekrar deneyin.' });
+      Toast.show({ type: 'success', text1: 'Antrenman kaydedildi!', text2: 'Planlarım bölümünde görünecek.' });
+      navigation.navigate('MainTabs', { screen: 'Explore' });
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 400) {
+        Toast.show({ type: 'error', text1: 'Geçersiz hareket', text2: 'Seçilen pozlardan biri katalogda bulunamadı.' });
+      } else {
+        Toast.show({ type: 'error', text1: 'Kayıt başarısız', text2: 'Lütfen tekrar deneyin.' });
+      }
     }
   };
+
+  const renderItem = useCallback(({ item }: { item: Pose }) => {
+    const isSelected = selected.has(item.pose_id);
+    const entry = selected.get(item.pose_id);
+    const accentColor = CATEGORY_COLOR[item.category] ?? colors.textMuted;
+    const name = locale === 'tr' ? (item.name_tr || item.name_en) : (item.name_en || item.name_tr);
+    return (
+      <Touchable
+        onPress={() => togglePose(item)}
+        style={[styles.poseRow, isSelected && styles.poseRowSelected]}
+        borderRadius={radius.lg}
+      >
+        <View style={[styles.poseAccent, { backgroundColor: accentColor }]} />
+        <View style={styles.poseInfo}>
+          <Text style={styles.poseName} numberOfLines={1}>{name}</Text>
+          <Text style={styles.poseMeta}>
+            {item.target_area}
+            {item.is_analyzable ? '  ·  Analiz' : ''}
+          </Text>
+        </View>
+        {isSelected && entry ? (
+          <View style={styles.stepper}>
+            <Touchable
+              onPress={() => updateDuration(item.pose_id, -1)}
+              style={styles.stepperBtn}
+              borderRadius={radius.sm}
+            >
+              <MaterialCommunityIcons name="minus" size={14} color={colors.primary} />
+            </Touchable>
+            <Text style={styles.stepperVal}>{entry.duration_min}dk</Text>
+            <Touchable
+              onPress={() => updateDuration(item.pose_id, 1)}
+              style={styles.stepperBtn}
+              borderRadius={radius.sm}
+            >
+              <MaterialCommunityIcons name="plus" size={14} color={colors.primary} />
+            </Touchable>
+          </View>
+        ) : null}
+        <MaterialCommunityIcons
+          name={isSelected ? 'checkbox-marked-circle' : 'checkbox-blank-circle-outline'}
+          size={22}
+          color={isSelected ? colors.primary : colors.textMuted}
+          style={styles.checkbox}
+        />
+      </Touchable>
+    );
+  }, [selected, locale, togglePose, updateDuration]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView
-          contentContainerStyle={styles.content}
+
+        {/* Header */}
+        <View style={styles.header}>
+          <Touchable onPress={() => navigation.goBack()} style={styles.backBtn} borderRadius={radius.full}>
+            <MaterialCommunityIcons name="chevron-left" size={26} color={colors.primary} />
+          </Touchable>
+          <Text style={styles.headerTitle}>Özel Antrenman</Text>
+          <View style={{ width: 40 }} />
+        </View>
+
+        <FlatList
+          data={filteredPoses}
+          keyExtractor={p => p.pose_id}
+          renderItem={renderItem}
           keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <Text style={styles.sectionLabel}>Antrenman Adı</Text>
-          <TextInput
-            style={styles.titleInput}
-            placeholder="Örn. Sabah Rutinim"
-            placeholderTextColor={colors.textMuted}
-            value={title}
-            onChangeText={setTitle}
-            returnKeyType="done"
-            maxLength={60}
-          />
+          contentContainerStyle={styles.listContent}
+          ItemSeparatorComponent={() => <View style={{ height: spacing.xs }} />}
+          ListHeaderComponent={
+            <View style={styles.listHeader}>
+              {/* Plan adı */}
+              <Text style={styles.fieldLabel}>Antrenman Adı</Text>
+              <TextInput
+                style={[styles.titleInput, titleTouched && title.trim().length === 0 && styles.titleInputError]}
+                placeholder="Örn. Sabah Rutinim"
+                placeholderTextColor={colors.textMuted}
+                value={title}
+                onChangeText={setTitle}
+                onBlur={() => setTitleTouched(true)}
+                returnKeyType="done"
+                maxLength={60}
+              />
+              {titleTouched && title.trim().length === 0 ? (
+                <Text style={styles.fieldError}>Antrenman adı boş bırakılamaz</Text>
+              ) : null}
 
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionLabel}>
-              {locale === 'tr' ? 'Seçilen Hareketler' : 'Selected Poses'} ({exercises.length})
-            </Text>
-          </View>
+              {/* Özet (seçim varsa) */}
+              {selectedList.length > 0 ? (
+                <View style={styles.summaryBanner}>
+                  <MaterialCommunityIcons name="check-circle-outline" size={16} color={colors.primary} />
+                  <Text style={styles.summaryText}>
+                    {selectedList.length} hareket · {totalDuration} dk
+                  </Text>
+                  {warnings.length > 0 ? (
+                    <View style={styles.warnBadge}>
+                      <MaterialCommunityIcons name="alert-outline" size={14} color={colors.warning} />
+                      <Text style={styles.warnBadgeText}>{warnings.length} uyarı</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
 
-          {exercises.length === 0 ? (
-            <View style={styles.emptyExercises}>
-              <MaterialCommunityIcons name="yoga" size={40} color={colors.textMuted} />
-              <Text style={styles.emptyText}>
-                {locale === 'tr' ? 'Henüz hareket eklenmedi.' : 'No poses added yet.'}
+              {/* Arama */}
+              <View style={styles.searchRow}>
+                <MaterialCommunityIcons name="magnify" size={18} color={colors.textMuted} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder={locale === 'tr' ? 'Hareket ara...' : 'Search poses...'}
+                  placeholderTextColor={colors.textMuted}
+                  value={search}
+                  onChangeText={setSearch}
+                  clearButtonMode="while-editing"
+                />
+              </View>
+
+              {/* Kategori filtresi */}
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={CATEGORY_OPTIONS}
+                keyExtractor={o => o.key}
+                contentContainerStyle={styles.filterRow}
+                renderItem={({ item }) => (
+                  <Touchable
+                    onPress={() => setActiveCategory(item.key)}
+                    borderRadius={radius.full}
+                    style={[styles.chip, activeCategory === item.key && styles.chipActive]}
+                  >
+                    <Text style={[styles.chipText, activeCategory === item.key && styles.chipTextActive]}>
+                      {item.label}
+                    </Text>
+                  </Touchable>
+                )}
+              />
+
+              <Text style={styles.countLabel}>
+                {filteredPoses.length} hareket
+                {selectedList.length > 0 ? ` · ${selectedList.length} seçili` : ''}
               </Text>
             </View>
-          ) : (
-            exercises.map((ex, idx) => {
-              const accentColor = categoryColorMap[ex.pose.category] ?? colors.textMuted;
-              const name = locale === 'tr'
-                ? (ex.pose.name_tr || ex.pose.name_en)
-                : (ex.pose.name_en || ex.pose.name_tr);
-              return (
-                <View key={ex.pose.pose_id} style={styles.exerciseRow}>
-                  <View style={[styles.exerciseAccent, { backgroundColor: accentColor }]} />
-                  <View style={styles.exerciseBody}>
-                    <View style={styles.exerciseTop}>
-                      <Text style={styles.exerciseIndex}>{idx + 1}.</Text>
-                      <Text style={styles.exerciseName} numberOfLines={1}>{name}</Text>
-                      <Touchable
-                        onPress={() => removeExercise(ex.pose.pose_id)}
-                        style={styles.removeBtn}
-                        borderRadius={radius.full}
-                      >
-                        <MaterialCommunityIcons name="trash-can-outline" size={18} color={colors.error} />
-                      </Touchable>
-                    </View>
-                    <View style={styles.exerciseBottom}>
-                      <Text style={styles.exerciseMeta}>
-                        {ex.pose.target_area}
-                        {ex.pose.is_analyzable ? '  ·  Analiz edilebilir' : ''}
-                      </Text>
-                      <View style={styles.stepper}>
-                        <Touchable
-                          onPress={() => updateDuration(ex.pose.pose_id, -1)}
-                          style={styles.stepperBtn}
-                          borderRadius={radius.sm}
-                        >
-                          <MaterialCommunityIcons name="minus" size={16} color={colors.primary} />
-                        </Touchable>
-                        <Text style={styles.stepperValue}>{ex.duration_min} dk</Text>
-                        <Touchable
-                          onPress={() => updateDuration(ex.pose.pose_id, 1)}
-                          style={styles.stepperBtn}
-                          borderRadius={radius.sm}
-                        >
-                          <MaterialCommunityIcons name="plus" size={16} color={colors.primary} />
-                        </Touchable>
-                      </View>
-                    </View>
+          }
+          ListFooterComponent={
+            <View style={styles.footer}>
+              {warnings.length > 0 ? (
+                <View style={styles.warningCard}>
+                  <MaterialCommunityIcons name="alert-circle-outline" size={16} color={colors.warning} />
+                  <View style={{ flex: 1 }}>
+                    {warnings.map((w, i) => (
+                      <Text key={i} style={styles.warningText}>{w}</Text>
+                    ))}
                   </View>
                 </View>
-              );
-            })
-          )}
-
-          <Button
-            title={locale === 'tr' ? '+ Hareket Ekle' : '+ Add Pose'}
-            onPress={() =>
-              navigation.navigate('SelectPosesForPlan', {
-                currentPoseIds: exercises.map(e => e.pose.pose_id),
-              })
-            }
-            variant="outline"
-            size="md"
-            fullWidth
-            icon="plus"
-            accessibilityLabel="Hareket ekle"
-          />
-
-          {exercises.length > 0 ? (
-            <View style={styles.summaryCard}>
-              <Text style={styles.summaryTitle}>{locale === 'tr' ? 'Özet' : 'Summary'}</Text>
-              <View style={styles.summaryRow}>
-                <MaterialCommunityIcons name="clock-outline" size={16} color={colors.textSecondary} />
-                <Text style={styles.summaryText}>
-                  {locale === 'tr' ? 'Toplam süre:' : 'Total duration:'} {totalDuration} {locale === 'tr' ? 'dakika' : 'minutes'}
-                </Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <MaterialCommunityIcons name="format-list-numbered" size={16} color={colors.textSecondary} />
-                <Text style={styles.summaryText}>
-                  {locale === 'tr' ? 'Hareket sayısı:' : 'Poses:'} {exercises.length}
-                </Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <MaterialCommunityIcons name="camera-outline" size={16} color={colors.textSecondary} />
-                <Text style={styles.summaryText}>
-                  {locale === 'tr' ? 'Analiz edilebilir:' : 'Analyzable:'} {analyzableCount}/{exercises.length}
-                </Text>
-              </View>
+              ) : null}
+              <Button
+                title={locale === 'tr' ? 'Antrenmanı Kaydet' : 'Save Plan'}
+                onPress={() => void handleSave()}
+                variant="primary"
+                size="lg"
+                fullWidth
+                icon="check"
+                loading={createMutation.isPending}
+                disabled={createMutation.isPending}
+                accessibilityLabel="Antrenmanı kaydet"
+              />
             </View>
-          ) : null}
-
-          {warnings.length > 0 ? (
-            <View style={styles.warningCard}>
-              <View style={styles.warningHeader}>
-                <MaterialCommunityIcons name="alert-circle-outline" size={18} color={colors.warning} />
-                <Text style={styles.warningTitle}>
-                  {locale === 'tr' ? 'Dikkat' : 'Caution'}
-                </Text>
-              </View>
-              {warnings.map((w, i) => (
-                <Text key={i} style={styles.warningText}>{w}</Text>
-              ))}
-            </View>
-          ) : null}
-
-          <Button
-            title={
-              createMutation.isPending
-                ? (locale === 'tr' ? 'Kaydediliyor...' : 'Saving...')
-                : (locale === 'tr' ? 'Antrenmanı Kaydet' : 'Save Plan')
-            }
-            onPress={() => void handleSave()}
-            variant="primary"
-            size="lg"
-            fullWidth
-            icon="check"
-            accessibilityLabel="Antrenmanı kaydet"
-          />
-        </ScrollView>
+          }
+        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -316,13 +354,21 @@ const CreateCustomPlanScreen = ({ route, navigation }: Props) => {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
-  content: {
-    padding: spacing.base,
-    gap: spacing.base,
-    paddingBottom: spacing.xxxl,
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderLight,
+    backgroundColor: colors.background,
   },
-  sectionLabel: { ...typography.bodySmMedium, color: colors.textSecondary },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { ...typography.h4, color: colors.text },
+  listContent: { paddingHorizontal: spacing.base, paddingBottom: spacing.xxxl },
+  listHeader: { paddingTop: spacing.base, gap: spacing.sm, marginBottom: spacing.sm },
+  fieldLabel: { ...typography.bodySmMedium, color: colors.textSecondary },
   titleInput: {
     ...typography.body,
     color: colors.text,
@@ -330,69 +376,92 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.base,
+    paddingHorizontal: spacing.base,
     height: 50,
   },
-  emptyExercises: {
+  titleInputError: { borderColor: colors.error },
+  fieldError: { ...typography.caption, color: colors.error },
+  summaryBanner: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.xl,
     gap: spacing.sm,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.lg,
+    padding: spacing.sm,
+  },
+  summaryText: { ...typography.bodySmMedium, color: colors.primaryDark, flex: 1 },
+  warnBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  warnBadgeText: { ...typography.caption, color: colors.warning },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.borderLight,
-    borderStyle: 'dashed',
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    height: 42,
   },
-  emptyText: { ...typography.bodySm, color: colors.textMuted },
-  exerciseRow: {
+  searchInput: { flex: 1, ...typography.bodySm, color: colors.text, height: 42 },
+  filterRow: { gap: spacing.xs },
+  chip: {
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipText: { ...typography.bodySmMedium, color: colors.textSecondary },
+  chipTextActive: { color: '#fff' },
+  countLabel: { ...typography.caption, color: colors.textMuted },
+  poseRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.borderLight,
     overflow: 'hidden',
+    minHeight: 60,
   },
-  exerciseAccent: { width: 4 },
-  exerciseBody: { flex: 1, padding: spacing.base, gap: spacing.sm },
-  exerciseTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  exerciseIndex: { ...typography.bodySmMedium, color: colors.textMuted, width: 20 },
-  exerciseName: { ...typography.bodySmMedium, color: colors.text, flex: 1 },
-  removeBtn: { padding: spacing.xs },
-  exerciseBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  exerciseMeta: { ...typography.caption, color: colors.textMuted, flex: 1 },
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  poseRowSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  poseAccent: { width: 4, alignSelf: 'stretch' },
+  poseInfo: { flex: 1, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, gap: 2 },
+  poseName: { ...typography.bodySmMedium, color: colors.text },
+  poseMeta: { ...typography.caption, color: colors.textMuted },
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: spacing.xs },
   stepperBtn: {
-    width: 28,
-    height: 28,
+    width: 26,
+    height: 26,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepperValue: { ...typography.bodySmMedium, color: colors.text, minWidth: 40, textAlign: 'center' },
-  summaryCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.borderLight,
-    padding: spacing.base,
+  stepperVal: { ...typography.captionMedium, color: colors.text, minWidth: 28, textAlign: 'center' },
+  checkbox: { marginRight: spacing.sm },
+  footer: {
+    marginTop: spacing.base,
     gap: spacing.sm,
+    paddingBottom: spacing.xl,
   },
-  summaryTitle: { ...typography.h4, color: colors.text },
-  summaryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  summaryText: { ...typography.bodySm, color: colors.textSecondary },
   warningCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
     backgroundColor: colors.warningSoft,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.warning + '40',
     padding: spacing.base,
-    gap: spacing.sm,
   },
-  warningHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  warningTitle: { ...typography.bodySmMedium, color: colors.warningDark },
   warningText: { ...typography.caption, color: colors.warningDark },
 });
 

@@ -33,6 +33,5 @@ export type RootStackParamList = {
   CameraTest: undefined;
   TrainingSessionDetail: { sessionId: string };
   PoseDetail: { poseId: string };
-  CreateCustomPlan: { addPoseId?: string; selectedPoseIds?: string[] } | undefined;
-  SelectPosesForPlan: { currentPoseIds: string[] };
+  CreateCustomPlan: { addPoseId?: string } | undefined;
 };
