@@ -118,6 +118,12 @@ const PlanCard = ({
         <View style={styles.chip}>
           <Text style={styles.chipText}>{focusArea}</Text>
         </View>
+        {plan.source === 'custom' ? (
+          <View style={[styles.chip, styles.chipCustom]}>
+            <MaterialCommunityIcons name="pencil-outline" size={11} color={colors.accent} />
+            <Text style={[styles.chipText, { color: colors.accent }]}>Özel</Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.metaRow}>
@@ -173,7 +179,8 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   actionButton: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: radius.full },
   badges: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs },
-  chip: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.full, backgroundColor: colors.primarySoft },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.full, backgroundColor: colors.primarySoft },
+  chipCustom: { backgroundColor: colors.accentSoft },
   chipText: { ...typography.captionMedium, color: colors.primaryDark },
   metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: spacing.sm, rowGap: spacing.xs, marginTop: spacing.xs },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
