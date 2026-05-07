@@ -249,6 +249,7 @@ const CreateCustomPlanScreen = ({ route, navigation }: Props) => {
           contentContainerStyle={styles.listContent}
           ItemSeparatorComponent={() => <View style={{ height: spacing.xs }} />}
           ListHeaderComponent={
+
             <View style={styles.listHeader}>
               {/* Plan adı */}
               <Text style={styles.fieldLabel}>Antrenman Adı</Text>
@@ -321,32 +322,33 @@ const CreateCustomPlanScreen = ({ route, navigation }: Props) => {
               </Text>
             </View>
           }
-          ListFooterComponent={
-            <View style={styles.footer}>
-              {warnings.length > 0 ? (
-                <View style={styles.warningCard}>
-                  <MaterialCommunityIcons name="alert-circle-outline" size={16} color={colors.warning} />
-                  <View style={{ flex: 1 }}>
-                    {warnings.map((w, i) => (
-                      <Text key={i} style={styles.warningText}>{w}</Text>
-                    ))}
-                  </View>
-                </View>
-              ) : null}
-              <Button
-                title={locale === 'tr' ? 'Antrenmanı Kaydet' : 'Save Plan'}
-                onPress={() => void handleSave()}
-                variant="primary"
-                size="lg"
-                fullWidth
-                icon="check"
-                loading={createMutation.isPending}
-                disabled={createMutation.isPending}
-                accessibilityLabel="Antrenmanı kaydet"
-              />
-            </View>
-          }
         />
+
+        {/* Floating save button — her zaman ekranın altında sabit */}
+        <View style={styles.floatingBar}>
+          {warnings.length > 0 ? (
+            <View style={styles.warningCard}>
+              <MaterialCommunityIcons name="alert-circle-outline" size={16} color={colors.warning} />
+              <View style={{ flex: 1 }}>
+                {warnings.map((w, i) => (
+                  <Text key={i} style={styles.warningText}>{w}</Text>
+                ))}
+              </View>
+            </View>
+          ) : null}
+          <Button
+            title={locale === 'tr' ? 'Antrenmanı Kaydet' : 'Save Plan'}
+            onPress={() => void handleSave()}
+            variant="primary"
+            size="lg"
+            fullWidth
+            icon="check"
+            loading={createMutation.isPending}
+            disabled={createMutation.isPending}
+            accessibilityLabel="Antrenmanı kaydet"
+          />
+        </View>
+
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -366,7 +368,7 @@ const styles = StyleSheet.create({
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { ...typography.h4, color: colors.text },
-  listContent: { paddingHorizontal: spacing.base, paddingBottom: spacing.xxxl },
+  listContent: { paddingHorizontal: spacing.base, paddingBottom: 120 },
   listHeader: { paddingTop: spacing.base, gap: spacing.sm, marginBottom: spacing.sm },
   fieldLabel: { ...typography.bodySmMedium, color: colors.textSecondary },
   titleInput: {
@@ -447,10 +449,18 @@ const styles = StyleSheet.create({
   },
   stepperVal: { ...typography.captionMedium, color: colors.text, minWidth: 28, textAlign: 'center' },
   checkbox: { marginRight: spacing.sm },
-  footer: {
-    marginTop: spacing.base,
+  floatingBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.background,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderLight,
+    paddingHorizontal: spacing.base,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.lg,
     gap: spacing.sm,
-    paddingBottom: spacing.xl,
   },
   warningCard: {
     flexDirection: 'row',
