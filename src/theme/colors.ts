@@ -3,6 +3,8 @@ export const colors = {
   primaryLight: '#3DAF75',
   primaryDark: '#1E6B45',
   primarySoft: '#E8F5EE',
+  primaryGradientStart: '#2D8B5E',
+  primaryGradientEnd: '#1B5E3F',
 
   secondary: '#C4956A',
   secondaryLight: '#D4AB85',
@@ -11,18 +13,19 @@ export const colors = {
   accent: '#7C6FAE',
   accentSoft: '#F0EDF7',
 
-  background: '#F5F4F0',
-  backgroundElevated: '#EEEEE8',
-  surface: '#FAFAF7',
-  surfaceElevated: '#F0EFEB',
+  background: '#F8F7F4',
+  surface: '#FFFFFF',
+  surfaceElevated: '#F5F4F0',
   surfaceWarm: '#FFF9F2',
+  /** Eski ekranlar / kart tonları için */
+  backgroundElevated: '#F0EFEB',
 
   gradientPrimary: ['#2D8B5E', '#1B5E3F'] as const,
   gradientWarm: ['#F8F7F4', '#F0EFEB'] as const,
   gradientHero: ['#1B5E3F', '#0F3D2A'] as const,
-  gradientBeginner: ['#D4EDDA', '#A8D5B8'] as const,
-  gradientIntermediate: ['#FFE8CC', '#FFD19A'] as const,
-  gradientAdvanced: ['#F8D7DA', '#F1AEB5'] as const,
+  gradientBeginner: ['#E8F5EE', '#C8E6D5'] as const,
+  gradientIntermediate: ['#FFF3E0', '#FFE0B2'] as const,
+  gradientAdvanced: ['#FFEBEE', '#FFCDD2'] as const,
 
   statGreen: '#E8F5EE',
   statBlue: '#E3F2FD',

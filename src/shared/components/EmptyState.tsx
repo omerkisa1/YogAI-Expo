@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors } from '@/theme/colors';
+import { cardShadow } from '@/theme/shadows';
 import { radius, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 import Button from './Button';
@@ -12,13 +13,15 @@ export interface EmptyStateProps {
   description: string;
   actionLabel?: string;
   onAction?: () => void;
+  /** Varsayılan: true — birincil CTA tam genişlik */
+  actionFullWidth?: boolean;
 }
 
-const EmptyState = ({ icon, title, description, actionLabel, onAction }: EmptyStateProps) => {
+const EmptyState = ({ icon, title, description, actionLabel, onAction, actionFullWidth = true }: EmptyStateProps) => {
   return (
     <View style={styles.container}>
       <View style={styles.iconContainer}>
-        <MaterialCommunityIcons name={icon as never} size={32} color={colors.primary} />
+        <MaterialCommunityIcons name={icon as never} size={36} color={colors.primary} />
       </View>
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.description}>{description}</Text>
@@ -28,7 +31,7 @@ const EmptyState = ({ icon, title, description, actionLabel, onAction }: EmptySt
           onPress={onAction}
           variant="primary"
           size="lg"
-          fullWidth={false}
+          fullWidth={actionFullWidth}
           accessibilityLabel={actionLabel}
         />
       ) : null}
@@ -45,6 +48,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.borderLight,
+    ...cardShadow,
   },
   iconContainer: {
     width: 64,

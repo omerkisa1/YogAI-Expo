@@ -1,3 +1,5 @@
+import { colors } from '@/theme/colors';
+
 export const shadows = {
   sm: {
     shadowColor: '#1A1A2E',
@@ -29,10 +31,12 @@ export const shadows = {
   },
 } as const;
 
+export const cardShadow = shadows.card;
+
 export const cardStyle = {
   ...shadows.card,
   borderWidth: 1,
-  borderColor: '#F0EFEB',
+  borderColor: colors.borderLight,
   borderRadius: 16,
-  backgroundColor: '#FAFAF7',
+  backgroundColor: colors.surface,
 } as const;

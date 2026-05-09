@@ -29,7 +29,7 @@ interface FilterOption { key: PlanFilter; label: string; icon?: string }
 
 const filterOptions: FilterOption[] = [
   { key: 'all', label: 'Tümü' },
-  { key: 'favorites', label: 'Favoriler', icon: 'star-outline' },
+  { key: 'favorites', label: 'Favoriler', icon: 'star' },
   { key: 'beginner', label: 'Başlangıç' },
   { key: 'intermediate', label: 'Orta' },
   { key: 'advanced', label: 'İleri' },
@@ -66,12 +66,12 @@ const PlansScreen = () => {
 
   const toggleFavorite = useCallback(async (plan: Plan) => {
     try { await updatePlanMutation.mutateAsync({ id: plan.id, data: { favorite: !plan.favorite } }); }
-    catch { Toast.show({ type: 'error', position: 'top', text1: 'İşlem Başarısız', text2: 'Favori bilgisi Güncellenemedi.' }); }
+    catch { Toast.show({ type: 'error', position: 'top', text1: 'İşlem başarısız', text2: 'Favori bilgisi güncellenemedi.' }); }
   }, [updatePlanMutation]);
 
   const togglePin = useCallback(async (plan: Plan) => {
     try { await updatePlanMutation.mutateAsync({ id: plan.id, data: { pin: !plan.pin } }); }
-    catch { Toast.show({ type: 'error', position: 'top', text1: 'İşlem Başarısız', text2: 'Sabitleme bilgisi Güncellenemedi.' }); }
+    catch { Toast.show({ type: 'error', position: 'top', text1: 'İşlem başarısız', text2: 'Sabitleme bilgisi güncellenemedi.' }); }
   }, [updatePlanMutation]);
 
   const renderFilterItem = useCallback(({ item }: { item: FilterOption }) => (
@@ -145,11 +145,17 @@ const PlansScreen = () => {
           removeClippedSubviews
           ListFooterComponent={<View style={styles.listFooterBottom} />}
           ListEmptyComponent={
-            <EmptyState icon="calendar-plus" title="Henüz plan oluşturmadınız" description="Sağ alttaki + butonuyla ilk planınızı oluşturabilirsiniz." />
+            <EmptyState
+              icon="calendar-plus"
+              title="Henüz plan oluşturmadınız"
+              description="Sağ alttaki + ile ilk planınızı oluşturabilirsiniz."
+              actionLabel="Plan Oluştur"
+              onAction={() => navigation.navigate('CreatePlan')}
+            />
           }
         />
 
-        <Touchable style={styles.fab} onPress={() => navigation.navigate('CreatePlan')} borderRadius={radius.lg} accessibilityRole="button" accessibilityLabel="Yeni plan oluştur">
+        <Touchable style={styles.fab} onPress={() => navigation.navigate('CreatePlan')} borderRadius={28} accessibilityRole="button" accessibilityLabel="Yeni plan oluştur">
           <LinearGradient colors={[colors.gradientPrimary[0], colors.gradientPrimary[1]]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fabGradient}>
             <MaterialCommunityIcons name="plus" size={28} color={colors.textOnPrimary} />
           </LinearGradient>
@@ -205,8 +211,8 @@ const styles = StyleSheet.create({
   headerRow: { paddingHorizontal: spacing.base, paddingTop: spacing.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { ...typography.h2, color: colors.text },
   filterButton: { width: 38, height: 38, borderRadius: radius.full, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  filterList: { paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm },
-  filterChip: { height: 36, paddingHorizontal: spacing.base, borderRadius: radius.full, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  filterList: { paddingHorizontal: spacing.base, paddingVertical: spacing.sm, gap: spacing.sm },
+  filterChip: { height: 34, paddingHorizontal: 16, borderRadius: radius.full, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   filterChipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
   filterChipUnselected: { backgroundColor: colors.surfaceElevated, borderColor: colors.borderLight },
   filterChipIcon: { marginRight: spacing.xs },
@@ -215,8 +221,8 @@ const styles = StyleSheet.create({
   filterChipLabelUnselected: { color: colors.textSecondary },
   listContent: { paddingHorizontal: spacing.base, paddingBottom: TAB_SCENE_BOTTOM_PADDING + spacing.huge + spacing.huge, gap: spacing.sm },
   listFooterBottom: { height: spacing.md },
-  fab: { position: 'absolute', right: spacing.xl, bottom: spacing.xl, width: 56, height: 56, borderRadius: radius.lg, overflow: 'hidden', ...shadows.lg },
-  fabGradient: { width: '100%', height: '100%', borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' },
+  fab: { position: 'absolute', right: spacing.xl, bottom: spacing.xl, width: 56, height: 56, borderRadius: 28, overflow: 'hidden', ...shadows.lg },
+  fabGradient: { width: '100%', height: '100%', borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
   sheetActions: { gap: spacing.sm, paddingBottom: spacing.base },
 });
 

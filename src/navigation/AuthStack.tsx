@@ -40,7 +40,7 @@ const AuthStack = () => {
       })}
     >
       <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false, title: 'Giriş' }} />
-      <Stack.Screen name="Register" component={RegisterScreen} options={{ headerShown: false, title: 'Hesap Oluştur' }} />
+      <Stack.Screen name="Register" component={RegisterScreen} options={{ headerShown: true, title: 'Hesap Oluştur' }} />
     </Stack.Navigator>
   );
 };

@@ -17,6 +17,7 @@ export interface AuthInputProps {
   onChangeText: (text: string) => void;
   error?: string;
   secureTextEntry?: boolean;
+  leftIcon?: string;
   rightIcon?: string;
   onRightIconPress?: () => void;
   disabled?: boolean;
@@ -33,6 +34,7 @@ const AuthInput = ({
   onChangeText,
   error,
   secureTextEntry = false,
+  leftIcon,
   rightIcon,
   onRightIconPress,
   disabled = false,
@@ -56,6 +58,9 @@ const AuthInput = ({
     <View style={styles.wrapper}>
       <Text style={styles.capsLabel}>{label.trim().toUpperCase()}</Text>
       <View style={[styles.inputContainer, containerStyle]}>
+        {leftIcon ? (
+          <MaterialCommunityIcons name={leftIcon as never} size={20} color={iconColor} style={styles.leftIcon} />
+        ) : null}
         <TextInput
           style={styles.input}
           placeholder={placeholder}
@@ -123,6 +128,7 @@ const styles = StyleSheet.create({
     paddingVertical: Platform.OS === 'ios' ? spacing.sm : spacing.xs,
   },
   rightIconButton: { marginLeft: spacing.sm, padding: spacing.xs },
+  leftIcon: { marginRight: spacing.sm },
   errorText: { ...typography.caption, color: colors.error, marginTop: spacing.xs },
 });
 

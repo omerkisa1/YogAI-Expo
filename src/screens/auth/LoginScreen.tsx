@@ -12,7 +12,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
@@ -25,26 +24,34 @@ import { useNetworkStatus } from '@/shared/hooks/useNetworkStatus';
 import type { AuthStackParamList } from '@/navigation/types';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
-import { shadows } from '@/theme/shadows';
 import { typography } from '@/theme/typography';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
-interface LoginFormValues { email: string; password: string }
-interface PasswordResetFormValues { email: string }
-
-const serifBrand = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' });
+interface LoginFormValues {
+  email: string;
+  password: string;
+}
+interface PasswordResetFormValues {
+  email: string;
+}
 
 const mapFirebaseError = (error: unknown) => {
   const code = (error as { code?: string })?.code;
   switch (code) {
-    case 'auth/user-not-found': return { text1: 'Giriş Başarısız', text2: 'Bu email ile kayıtlı kullanıcı bulunamadı.' };
+    case 'auth/user-not-found':
+      return { text1: 'Giriş başarısız', text2: 'Bu e-posta ile kayıtlı kullanıcı bulunamadı.' };
     case 'auth/wrong-password':
-    case 'auth/invalid-credential': return { text1: 'Giriş Başarısız', text2: 'Şifre hatalı. Lütfen tekrar deneyin.' };
-    case 'auth/invalid-email': return { text1: 'Geçersiz email', text2: 'Lütfen geçerli bir email adresi girin.' };
-    case 'auth/too-many-requests': return { text1: 'Çok fazla deneme', text2: 'Lütfen bir süre bekleyip tekrar deneyin.' };
-    case 'auth/network-request-failed': return { text1: 'Bağlantı hatası', text2: 'İnternet bağlantınızı kontrol edin.' };
-    default: return { text1: 'Giriş Başarısız', text2: 'Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.' };
+    case 'auth/invalid-credential':
+      return { text1: 'Giriş başarısız', text2: 'Şifre hatalı. Lütfen tekrar deneyin.' };
+    case 'auth/invalid-email':
+      return { text1: 'Geçersiz e-posta', text2: 'Lütfen geçerli bir e-posta adresi girin.' };
+    case 'auth/too-many-requests':
+      return { text1: 'Çok fazla deneme', text2: 'Lütfen bir süre bekleyip tekrar deneyin.' };
+    case 'auth/network-request-failed':
+      return { text1: 'Bağlantı hatası', text2: 'İnternet bağlantınızı kontrol edin.' };
+    default:
+      return { text1: 'Giriş başarısız', text2: 'Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.' };
   }
 };
 
@@ -84,7 +91,10 @@ const LoginScreen = ({ navigation }: Props) => {
   );
 
   const onSubmit = handleSubmit(async values => {
-    if (isOffline) { Toast.show({ type: 'error', position: 'top', text1: 'İnternet bağlantısı yok', text2: 'Lütfen bağlantınızı kontrol edip tekrar deneyin.' }); return; }
+    if (isOffline) {
+      Toast.show({ type: 'error', position: 'top', text1: 'İnternet bağlantısı yok', text2: 'Lütfen bağlantınızı kontrol edip tekrar deneyin.' });
+      return;
+    }
     try {
       await signInWithEmail(values.email.trim(), values.password);
     } catch (error) {
@@ -94,16 +104,27 @@ const LoginScreen = ({ navigation }: Props) => {
   });
 
   const onGoogleSignIn = async () => {
-    if (isOffline) { Toast.show({ type: 'error', position: 'top', text1: 'İnternet bağlantısı yok', text2: 'Lütfen bağlantınızı kontrol edip tekrar deneyin.' }); return; }
-    try { await signInWithGoogle(); } catch (error) { const mapped = mapFirebaseError(error); Toast.show({ type: 'error', position: 'top', ...mapped }); }
+    if (isOffline) {
+      Toast.show({ type: 'error', position: 'top', text1: 'İnternet bağlantısı yok', text2: 'Lütfen bağlantınızı kontrol edip tekrar deneyin.' });
+      return;
+    }
+    try {
+      await signInWithGoogle();
+    } catch (error) {
+      const mapped = mapFirebaseError(error);
+      Toast.show({ type: 'error', position: 'top', ...mapped });
+    }
   };
 
   const onResetPassword = handleResetSubmit(async values => {
-    if (isOffline) { Toast.show({ type: 'error', position: 'top', text1: 'İnternet bağlantısı yok' }); return; }
+    if (isOffline) {
+      Toast.show({ type: 'error', position: 'top', text1: 'İnternet bağlantısı yok' });
+      return;
+    }
     try {
       await resetPassword(values.email.trim());
       setIsResetSheetVisible(false);
-      Toast.show({ type: 'success', position: 'top', text1: 'Başarılı', text2: 'Şifre sıfırlama linki gönderildi.' });
+      Toast.show({ type: 'success', position: 'top', text1: 'Başarılı', text2: 'Şifre sıfırlama bağlantısı gönderildi.' });
     } catch (error) {
       const mapped = mapFirebaseError(error);
       Toast.show({ type: 'error', position: 'top', ...mapped });
@@ -112,29 +133,34 @@ const LoginScreen = ({ navigation }: Props) => {
 
   return (
     <View style={styles.root}>
-      <LinearGradient
-        colors={['#EDE9E2', '#E5E0D8', '#EFEAE4']}
-        start={{ x: 0.2, y: 0 }}
-        end={{ x: 0.9, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      <BlurView intensity={Platform.OS === 'ios' ? 28 : 22} tint="light" style={StyleSheet.absoluteFill} />
+      <StatusBar barStyle="light-content" />
+      <SafeAreaView style={styles.safeTop} edges={['top']}>
+        <View style={styles.flex}>
+          <LinearGradient
+            colors={[...colors.gradientPrimary]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.hero}
+          >
+            <MaterialCommunityIcons name="meditation" size={64} color={colors.textOnPrimary} />
+            <Text style={styles.brand}>YogAI</Text>
+            <Text style={styles.tagline}>Kişisel AI yoga asistanınız</Text>
+          </LinearGradient>
 
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-        <StatusBar barStyle="dark-content" />
-        <KeyboardAvoidingView style={styles.keyboardAvoid} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            <View style={styles.card}>
-              <Text style={styles.wordmark}>YogAI</Text>
-
+          <KeyboardAvoidingView style={styles.lower} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               <Controller
                 name="email"
                 control={control}
-                rules={{ required: 'Email zorunlu', pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: 'Geçerli email adresi girin' } }}
+                rules={{
+                  required: 'E-posta zorunlu',
+                  pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: 'Geçerli e-posta adresi girin' },
+                }}
                 render={({ field: { value, onChange } }) => (
                   <AuthInput
                     label="E-posta"
-                    placeholder="E-postanızı girin"
+                    placeholder="E-posta adresiniz"
+                    leftIcon="email-outline"
                     value={value}
                     onChangeText={onChange}
                     error={errors.email?.message}
@@ -142,6 +168,27 @@ const LoginScreen = ({ navigation }: Props) => {
                     autoCapitalize="none"
                     textContentType="emailAddress"
                     accessibilityLabel="E-posta adresi"
+                  />
+                )}
+              />
+
+              <Controller
+                name="password"
+                control={control}
+                rules={{ required: 'Şifre zorunlu', minLength: { value: 6, message: 'Şifre en az 6 karakter olmalı' } }}
+                render={({ field: { value, onChange } }) => (
+                  <AuthInput
+                    label="Şifre"
+                    placeholder="Şifreniz"
+                    leftIcon="lock-outline"
+                    value={value}
+                    onChangeText={onChange}
+                    error={errors.password?.message}
+                    secureTextEntry={!isPasswordVisible}
+                    rightIcon={isPasswordVisible ? 'eye-off-outline' : 'eye-outline'}
+                    onRightIconPress={() => setIsPasswordVisible(prev => !prev)}
+                    textContentType="password"
+                    accessibilityLabel="Şifre"
                   />
                 )}
               />
@@ -157,86 +204,84 @@ const LoginScreen = ({ navigation }: Props) => {
                 <Text style={styles.forgotText}>Şifremi unuttum</Text>
               </Touchable>
 
-              <Controller
-                name="password"
-                control={control}
-                rules={{ required: 'Şifre zorunlu', minLength: { value: 6, message: 'Şifre en az 6 karakter olmalı' } }}
-                render={({ field: { value, onChange } }) => (
-                  <View style={styles.passwordBlock}>
-                    <AuthInput
-                      label="Şifre"
-                      placeholder="Şifrenizi girin"
-                      value={value}
-                      onChangeText={onChange}
-                      error={errors.password?.message}
-                      secureTextEntry={!isPasswordVisible}
-                      rightIcon={isPasswordVisible ? 'eye-off-outline' : 'eye-outline'}
-                      onRightIconPress={() => setIsPasswordVisible(prev => !prev)}
-                      textContentType="password"
-                      accessibilityLabel="Şifre"
-                    />
-                  </View>
-                )}
-              />
-
-              <Touchable
-                onPress={onSubmit}
+              <Button
+                title="Giriş Yap"
+                onPress={() => void onSubmit()}
+                variant="primary"
+                size="lg"
+                fullWidth
+                loading={isSubmitting}
                 disabled={isSubmitting}
-                style={[styles.pillPrimary, isSubmitting && styles.pillDisabled]}
-                borderRadius={radius.full}
-                accessibilityRole="button"
                 accessibilityLabel="Giriş yap"
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator size="small" color={colors.textOnPrimary} />
-                ) : (
-                  <View style={styles.pillInner}>
-                    <Text style={styles.pillPrimaryText}>Giriş yap</Text>
-                    <MaterialCommunityIcons name="arrow-right" size={22} color={colors.textOnPrimary} />
-                  </View>
-                )}
-              </Touchable>
+              />
 
               {separator}
 
-              <Touchable onPress={onGoogleSignIn} disabled={isSubmitting} style={[styles.googleButton, isSubmitting && styles.googleButtonDisabled]} borderRadius={radius.full} accessibilityRole="button" accessibilityLabel="Google ile giriş yap">
+              <Touchable
+                onPress={() => void onGoogleSignIn()}
+                disabled={isSubmitting}
+                style={[styles.googleButton, isSubmitting && styles.googleDisabled]}
+                borderRadius={radius.full}
+                accessibilityRole="button"
+                accessibilityLabel="Google ile giriş yap"
+              >
                 {isSubmitting ? (
                   <ActivityIndicator size="small" color={colors.textSecondary} />
                 ) : (
                   <>
-                    <View style={styles.googleIconWrap}><Text style={styles.googleIconText}>G</Text></View>
-                    <Text style={styles.googleButtonText}>Google ile giriş yap</Text>
+                    <View style={styles.googleIconWrap}>
+                      <Text style={styles.googleG}>G</Text>
+                    </View>
+                    <Text style={styles.googleLabel}>Google ile Giriş Yap</Text>
                   </>
                 )}
               </Touchable>
-            </View>
 
-            <View style={styles.footerRegister}>
-              <Text style={styles.footerMuted}>{`YogAI'de yeni misin? `}</Text>
-              <Touchable onPress={() => navigation.navigate('Register')} borderRadius={radius.sm} accessibilityRole="button" accessibilityLabel="Kayıt ol ekranına git">
-                <Text style={styles.footerLinkBold}>Hesap oluştur</Text>
-              </Touchable>
-            </View>
-
-            <Text style={styles.legalFooter}>
-              Devam ederek Kullanım Şartları ve Gizlilik Politikası kapsamında veri işlenmesini kabul etmiş olursun.
-            </Text>
-          </ScrollView>
-        </KeyboardAvoidingView>
+              <View style={styles.footerRow}>
+                <Text style={styles.footerMuted}>Hesabın yok mu? </Text>
+                <Touchable onPress={() => navigation.navigate('Register')} borderRadius={radius.sm} accessibilityRole="button" accessibilityLabel="Kayıt ol">
+                  <Text style={styles.footerBold}>Kayıt Ol</Text>
+                </Touchable>
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </View>
       </SafeAreaView>
 
       <BottomSheet visible={isResetSheetVisible} onClose={() => setIsResetSheetVisible(false)} title="Şifre sıfırlama">
         <Controller
           name="email"
           control={resetControl}
-          rules={{ required: 'Email zorunlu', pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: 'Geçerli email adresi girin' } }}
+          rules={{
+            required: 'E-posta zorunlu',
+            pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: 'Geçerli e-posta adresi girin' },
+          }}
           render={({ field: { value, onChange } }) => (
-            <AuthInput label="E-posta" placeholder="E-postanızı girin" value={value} onChangeText={onChange} error={resetErrors.email?.message} keyboardType="email-address" autoCapitalize="none" accessibilityLabel="Şifre sıfırlama e-postası" />
+            <AuthInput
+              label="E-posta"
+              placeholder="E-posta adresiniz"
+              leftIcon="email-outline"
+              value={value}
+              onChangeText={onChange}
+              error={resetErrors.email?.message}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              accessibilityLabel="Şifre sıfırlama e-postası"
+            />
           )}
         />
         <View style={styles.sheetActions}>
           <Button title="İptal" onPress={() => setIsResetSheetVisible(false)} variant="ghost" size="md" fullWidth accessibilityLabel="İptal" />
-          <Button title="Sıfırlama linki gönder" onPress={onResetPassword} variant="primary" size="md" loading={isSubmitting} disabled={isSubmitting} fullWidth accessibilityLabel="Sıfırlama linki gönder" />
+          <Button
+            title="Sıfırlama bağlantısı gönder"
+            onPress={onResetPassword}
+            variant="primary"
+            size="md"
+            loading={isSubmitting}
+            disabled={isSubmitting}
+            fullWidth
+            accessibilityLabel="Sıfırlama bağlantısı gönder"
+          />
         </View>
       </BottomSheet>
     </View>
@@ -245,54 +290,28 @@ const LoginScreen = ({ navigation }: Props) => {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
-  safeArea: { flex: 1, backgroundColor: 'transparent' },
-  keyboardAvoid: { flex: 1 },
-  scrollContent: {
-    flexGrow: 1,
+  safeTop: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
+  hero: {
+    flex: 0.35,
+    minHeight: 200,
+    paddingHorizontal: spacing.xl,
     justifyContent: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.xl,
-    paddingBottom: spacing.huge,
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 28,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.xl + spacing.sm,
-    ...shadows.card,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.9)',
-  },
-  wordmark: {
-    fontFamily: serifBrand,
-    fontSize: 36,
-    fontWeight: '700',
-    color: colors.primaryDark,
-    textAlign: 'center',
-    marginBottom: spacing.xl,
-    letterSpacing: 0.5,
-  },
-  forgotRow: { alignSelf: 'flex-end', marginTop: -spacing.sm, marginBottom: spacing.sm },
-  forgotText: { ...typography.bodySmMedium, color: colors.primary },
-  passwordBlock: { marginTop: -spacing.xs },
-  pillPrimary: {
-    minHeight: 54,
-    marginTop: spacing.sm,
-    borderRadius: radius.full,
-    backgroundColor: colors.primaryDark,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.xl,
-    ...shadows.sm,
+    borderBottomLeftRadius: 40,
+    borderBottomRightRadius: 40,
   },
-  pillDisabled: { opacity: 0.55 },
-  pillInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
-  pillPrimaryText: { ...typography.buttonLg, color: colors.textOnPrimary },
-  separatorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.lg, marginBottom: spacing.sm },
+  brand: { ...typography.display, color: colors.textOnPrimary, marginTop: spacing.md },
+  tagline: { ...typography.bodySm, color: 'rgba(255,255,255,0.82)', marginTop: spacing.sm, textAlign: 'center' },
+  lower: { flex: 0.65 },
+  scrollContent: { paddingHorizontal: spacing.xl, paddingTop: spacing.xl, paddingBottom: spacing.huge },
+  forgotRow: { alignSelf: 'flex-end', marginTop: -spacing.sm, marginBottom: spacing.sm },
+  forgotText: { ...typography.bodySm, color: colors.primary, fontWeight: '700' },
+  separatorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginVertical: spacing.lg },
   separatorLine: { flex: 1, height: 1, backgroundColor: colors.border },
   separatorText: { ...typography.caption, color: colors.textMuted },
   googleButton: {
-    minHeight: 50,
+    minHeight: 48,
     borderRadius: radius.full,
     borderWidth: 1,
     borderColor: colors.border,
@@ -300,22 +319,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: spacing.sm,
   },
-  googleButtonDisabled: { opacity: 0.6 },
-  googleIconWrap: { width: 22, height: 22, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: colors.borderLight, marginRight: spacing.sm },
-  googleIconText: { ...typography.bodySmMedium, color: '#4285F4' },
-  googleButtonText: { ...typography.buttonMd, color: colors.text },
-  footerRegister: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
+  googleDisabled: { opacity: 0.6 },
+  googleIconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
     alignItems: 'center',
-    marginTop: spacing.xl,
-    gap: 2,
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
   },
+  googleG: { ...typography.bodySmMedium, color: '#4285F4' },
+  googleLabel: { ...typography.buttonMd, color: colors.text },
+  footerRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginTop: spacing.xl },
   footerMuted: { ...typography.bodySm, color: colors.textSecondary },
-  footerLinkBold: { ...typography.bodySmMedium, color: colors.primary, fontWeight: '700' },
-  legalFooter: { ...typography.caption, color: colors.textMuted, textAlign: 'center', marginTop: spacing.lg, lineHeight: 18, paddingHorizontal: spacing.sm },
+  footerBold: { ...typography.bodySmMedium, color: colors.primary, fontWeight: '700' },
   sheetActions: { gap: spacing.sm, marginTop: spacing.sm },
 });
 

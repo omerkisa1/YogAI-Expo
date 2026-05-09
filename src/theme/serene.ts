@@ -1,5 +1,5 @@
 export const serene = {
-  background: '#faf9f5',
+  background: '#F8F7F4',
   surfaceLowest: '#ffffff',
   surfaceContainerLow: '#f5f4f0',
   surfaceContainer: '#efeeea',

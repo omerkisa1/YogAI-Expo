@@ -91,7 +91,7 @@ const PlanCard = ({
             <MaterialCommunityIcons
               name={plan.favorite ? 'star' : 'star-outline'}
               size={21}
-              color={plan.favorite ? colors.warning : colors.textMuted}
+              color={plan.favorite ? colors.secondary : colors.textMuted}
             />
           </Pressable>
           <Pressable
@@ -112,8 +112,8 @@ const PlanCard = ({
       </View>
 
       <View style={styles.badges}>
-        <View style={[styles.chip, { backgroundColor: `${difficulty.color}22` }]}>
-          <Text style={[styles.chipText, { color: difficulty.color }]}>{difficulty.label}</Text>
+        <View style={styles.chip}>
+          <Text style={styles.chipText}>{difficulty.label}</Text>
         </View>
         <View style={styles.chip}>
           <Text style={styles.chipText}>{focusArea}</Text>
@@ -121,7 +121,7 @@ const PlanCard = ({
         {plan.source === 'custom' ? (
           <View style={[styles.chip, styles.chipCustom]}>
             <MaterialCommunityIcons name="pencil-outline" size={11} color={colors.accent} />
-            <Text style={[styles.chipText, { color: colors.accent }]}>Özel</Text>
+            <Text style={[styles.chipText, styles.chipTextCustom]}>Özel</Text>
           </View>
         ) : null}
       </View>
@@ -181,7 +181,8 @@ const styles = StyleSheet.create({
   badges: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.full, backgroundColor: colors.primarySoft },
   chipCustom: { backgroundColor: colors.accentSoft },
-  chipText: { ...typography.captionMedium, color: colors.primaryDark },
+  chipText: { ...typography.captionMedium, color: colors.primary },
+  chipTextCustom: { color: colors.accent },
   metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: spacing.sm, rowGap: spacing.xs, marginTop: spacing.xs },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   metaText: { ...typography.caption, color: colors.textSecondary },

@@ -5,6 +5,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuthStore } from '@/features/auth/stores/authStore';
 import Touchable from '@/shared/components/Touchable';
+import AppSplash from '@/shared/components/AppSplash';
 import OnboardingScreen from '@/screens/onboarding/OnboardingScreen';
 import CreatePlanScreen from '@/screens/plans/CreatePlanScreen';
 import PlanDetailScreen from '@/screens/plans/PlanDetailScreen';
@@ -106,7 +107,7 @@ const RootNavigator = () => {
   }, []);
 
   if (isLoading || isOnboardingLoading) {
-    return <View style={styles.loadingFallback} />;
+    return <AppSplash />;
   }
 
   if (!hasSeenOnboarding) {
@@ -124,10 +125,6 @@ const styles = StyleSheet.create({
   backButton: {
     paddingRight: spacing.xs,
     paddingVertical: spacing.xs,
-  },
-  loadingFallback: {
-    flex: 1,
-    backgroundColor: colors.background,
   },
 });
 

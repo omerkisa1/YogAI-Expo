@@ -1,88 +1,144 @@
 import React, { useMemo, useState } from 'react';
+import { Alert, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { NavigationProp, useNavigation } from '@react-navigation/native';
-import { Platform, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import ProfileSetupWizard from '@/features/profile/components/ProfileSetupWizard';
 import { useProfile, useUpdateProfile } from '@/features/profile/hooks/useProfile';
-import { useTrainingStats } from '@/features/training/hooks/useTraining';
-import AppModal from '@/shared/components/AppModal';
 import BottomSheet from '@/shared/components/BottomSheet';
 import Card from '@/shared/components/Card';
 import ErrorView from '@/shared/components/ErrorView';
 import LoadingView from '@/shared/components/LoadingView';
 import ProgressBar from '@/shared/components/ProgressBar';
 import Touchable from '@/shared/components/Touchable';
-import type { AppLanguage } from '@/shared/types/plan';
+import type { AppLanguage, Injury, Level } from '@/shared/types/plan';
+import type { Goal, Profile } from '@/shared/types/profile';
 import type { RootStackParamList } from '@/navigation/types';
 import { TAB_SCENE_BOTTOM_PADDING } from '@/navigation/tabBarMetrics';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
-import { shadows } from '@/theme/shadows';
+import { cardShadow } from '@/theme/shadows';
 import { typography } from '@/theme/typography';
-
-/** Marka yeşili (gradientPrimary ile aynı hat); son durak biraz daha koyu */
-const PROFILE_HERO_GRADIENT = [colors.gradientPrimary[0], colors.gradientPrimary[1], '#123d29'] as const;
-
-const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' });
 
 const languageLabel: Record<AppLanguage, string> = { tr: 'Türkçe', en: 'English' };
 
-type AccountRow =
-  | { key: string; kind: 'link'; label: string; icon: string; onPress: () => void }
-  | { key: string; kind: 'language'; label: string; icon: string };
+const levelLabel: Record<Level, string> = { beginner: 'Başlangıç', intermediate: 'Orta', advanced: 'İleri' };
 
-function profileCompletionMeta(profile: { age: number; goals?: unknown[] }, displayName: string, email: string) {
+const goalLabel: Record<Goal, string> = {
+  flexibility: 'Esneklik',
+  stress_relief: 'Rahatlama',
+  strength: 'Güç',
+  balance: 'Denge',
+  mobility: 'Hareketlilik',
+  posture: 'Duruş',
+};
+
+const injuryLabel: Record<Injury, string> = {
+  knee_injury: 'Diz',
+  ankle_injury: 'Ayak bileği',
+  herniated_disc: 'Bel fıtığı',
+  low_back_pain: 'Bel',
+  shoulder_injury: 'Omuz',
+  wrist_injury: 'Bilek',
+  neck_injury: 'Boyun',
+  groin_injury: 'Kasık',
+  hip_injury: 'Kalça',
+};
+
+type MenuRow =
+  | { key: string; kind: 'link'; label: string; icon: string; iconBg: string; iconColor: string; onPress: () => void }
+  | { key: string; kind: 'language'; label: string; icon: string; iconBg: string; iconColor: string };
+
+function profileCompletion(profile: Profile, displayName: string, email: string) {
   const checks = [
     Boolean(displayName?.trim()),
-    Boolean(email && email !== 'email bulunamadı'),
+    Boolean(email && email !== '—' && email.includes('@')),
     profile.age > 0,
     Array.isArray(profile.goals) && profile.goals.length > 0,
   ];
-  const completedCount = checks.filter(Boolean).length;
+  const completed = checks.filter(Boolean).length;
   const total = checks.length;
-  return {
-    completedCount,
-    total,
-    percent: Math.round((completedCount / total) * 100),
-    isComplete: completedCount === total,
-  };
+  return { completed, total, percent: Math.round((completed / total) * 100), isComplete: completed === total };
 }
 
 const ProfileScreen = () => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const profileQuery = useProfile();
   const updateProfileMutation = useUpdateProfile();
-  const statsQuery = useTrainingStats();
   const { signOut, user } = useAuth();
-  const [showSignOutModal, setShowSignOutModal] = useState(false);
   const [languageSheetVisible, setLanguageSheetVisible] = useState(false);
 
   const displayName = profileQuery.data?.display_name || user?.displayName || 'YogAI Kullanıcı';
-  const email = user?.email || 'email bulunamadı';
+  const email = user?.email || '—';
   const avatarInitial = displayName.charAt(0).toUpperCase() || 'Y';
 
-  const onSignOut = async () => {
-    try {
-      await signOut();
-    } catch {
-      Toast.show({ type: 'error', position: 'top', text1: 'Çıkış Başarısız', text2: 'Lütfen tekrar deneyin.' });
-    }
+  const onSignOutPress = () => {
+    Alert.alert('Çıkış yap', 'Oturumunuzu kapatmak istediğinize emin misiniz?', [
+      { text: 'İptal', style: 'cancel' },
+      {
+        text: 'Çıkış Yap',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            try {
+              await signOut();
+            } catch {
+              Toast.show({ type: 'error', position: 'top', text1: 'Çıkış başarısız', text2: 'Lütfen tekrar deneyin.' });
+            }
+          })();
+        },
+      },
+    ]);
   };
 
-  const stats = statsQuery.data;
-  const sessionCount = stats?.total_sessions ?? 0;
-  const streak = stats?.current_streak ?? 0;
-  const avgPct = Math.round(stats?.average_accuracy ?? 0);
-
-  const accountRows = useMemo(
-    (): AccountRow[] => [
-      { kind: 'link', key: 'edit-profile', label: 'Profili Düzenle', icon: 'pencil-outline', onPress: () => navigation.navigate('EditProfile') },
-      { kind: 'link', key: 'notifications', label: 'Bildirimler', icon: 'bell-outline', onPress: () => Toast.show({ type: 'info', position: 'top', text1: 'Yakında' }) },
-      { kind: 'link', key: 'privacy', label: 'Gizlilik ve Güvenlik', icon: 'shield-outline', onPress: () => Toast.show({ type: 'info', position: 'top', text1: 'Yakında' }) },
-      { kind: 'language', key: 'app-language', label: 'Uygulama dili', icon: 'translate' },
+  const menuRows = useMemo(
+    (): MenuRow[] => [
+      {
+        kind: 'link',
+        key: 'edit-profile',
+        label: 'Profili Düzenle',
+        icon: 'account-edit',
+        iconBg: colors.primary,
+        iconColor: colors.textOnPrimary,
+        onPress: () => navigation.navigate('EditProfile'),
+      },
+      {
+        kind: 'link',
+        key: 'notifications',
+        label: 'Bildirim Ayarları',
+        icon: 'bell-outline',
+        iconBg: colors.info,
+        iconColor: colors.textOnPrimary,
+        onPress: () => Toast.show({ type: 'info', position: 'top', text1: 'Yakında' }),
+      },
+      {
+        kind: 'link',
+        key: 'about',
+        label: 'Hakkında',
+        icon: 'information-outline',
+        iconBg: colors.surfaceElevated,
+        iconColor: colors.textMuted,
+        onPress: () => Toast.show({ type: 'info', position: 'top', text1: 'Yakında' }),
+      },
+      {
+        kind: 'link',
+        key: 'privacy',
+        label: 'Gizlilik Politikası',
+        icon: 'shield-check-outline',
+        iconBg: colors.surfaceElevated,
+        iconColor: colors.textMuted,
+        onPress: () => Toast.show({ type: 'info', position: 'top', text1: 'Yakında' }),
+      },
+      {
+        kind: 'language',
+        key: 'app-language',
+        label: 'Uygulama dili',
+        icon: 'translate',
+        iconBg: colors.accentSoft,
+        iconColor: colors.accent,
+      },
     ],
     [navigation],
   );
@@ -108,8 +164,7 @@ const ProfileScreen = () => {
   }
 
   const profile = profileQuery.data;
-  const { completedCount, total: completionTotal, percent: completionPercent, isComplete: isProfileComplete } = profileCompletionMeta(profile, displayName, email);
-
+  const { completed, total, percent, isComplete } = profileCompletion(profile, displayName, email);
   const currentLang = profile.preferred_language ?? 'tr';
 
   const pickLanguage = async (lang: AppLanguage) => {
@@ -122,91 +177,110 @@ const ProfileScreen = () => {
       setLanguageSheetVisible(false);
       Toast.show({ type: 'success', position: 'top', text1: 'Dil güncellendi', text2: languageLabel[lang] });
     } catch {
-      Toast.show({ type: 'error', position: 'top', text1: 'Kaydedilemedi', text2: 'Lütfen tekrar dene.' });
+      Toast.show({ type: 'error', position: 'top', text1: 'Kaydedilemedi', text2: 'Lütfen tekrar deneyin.' });
     }
   };
 
+  const goalsText = profile.goals?.length ? profile.goals.map(g => goalLabel[g] ?? g).join(', ') : null;
+  const injuriesText = profile.injuries?.length ? profile.injuries.map(i => injuryLabel[i] ?? i).join(', ') : null;
+  const ageText = profile.age > 0 ? String(profile.age) : null;
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle="light-content" />
       <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.topBar}>
-          <Touchable onPress={() => navigation.navigate('EditProfile')} borderRadius={radius.full} style={styles.topBarIconBtn} accessibilityRole="button" accessibilityLabel="Profili düzenle">
-            <MaterialCommunityIcons name="account-circle-outline" size={28} color={colors.primaryDark} />
-          </Touchable>
-          <Text style={styles.navWordmark}>YogAI</Text>
-          <Touchable onPress={() => Toast.show({ type: 'info', position: 'top', text1: 'Yakında' })} borderRadius={radius.full} style={styles.topBarIconBtn} accessibilityRole="button" accessibilityLabel="Ayarlar">
-            <MaterialCommunityIcons name="cog-outline" size={26} color={colors.textSecondary} />
-          </Touchable>
-        </View>
-
-        <LinearGradient colors={[...PROFILE_HERO_GRADIENT]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
-          <View style={styles.avatarWrap}>
-            <View style={styles.avatarOuter}>
-              <View style={styles.avatarInner}>
-                <Text style={styles.avatarLetter}>{avatarInitial}</Text>
-              </View>
-            </View>
-          </View>
-
+        <LinearGradient colors={[...colors.gradientPrimary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+          <LinearGradient
+            colors={[colors.primaryLight, colors.primaryDark]}
+            style={styles.avatarOuter}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <Text style={styles.avatarLetter}>{avatarInitial}</Text>
+          </LinearGradient>
           <Text style={styles.heroName} numberOfLines={1}>
             {displayName}
           </Text>
           <Text style={styles.heroEmail} numberOfLines={1}>
             {email}
           </Text>
-
-          <View style={styles.statsStrip}>
-            <View style={styles.statCell}>
-              <Text style={styles.statValue}>{sessionCount}</Text>
-              <Text style={styles.statLabel}>ANTRENMAN</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statCell}>
-              <Text style={styles.statValue}>{streak}</Text>
-              <Text style={styles.statLabel}>SERİ</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statCell}>
-              <Text style={styles.statValue}>{avgPct}%</Text>
-              <Text style={styles.statLabel}>ORT. SKOR</Text>
-            </View>
-          </View>
         </LinearGradient>
 
         <View style={styles.sheet}>
-          {!isProfileComplete ? (
-            <View style={styles.incompleteBlock}>
-              <View style={styles.summaryHeader}>
-                <Text style={styles.summaryTitle}>Profil özeti</Text>
-                <Text style={styles.completionBadge}>{completedCount}/{completionTotal}</Text>
+          <Card variant="default" style={styles.infoCard}>
+            {!isComplete ? (
+              <View style={styles.completionHeader}>
+                <Text style={styles.completionTitle}>Profilinizi Tamamlayın</Text>
+                <Text style={styles.completionCount}>
+                  {completed}/{total} ✓
+                </Text>
               </View>
-              <ProgressBar progress={completionPercent} color={colors.primaryDark} height={4} />
+            ) : null}
+            {!isComplete ? <ProgressBar progress={percent} color={colors.primary} height={4} /> : null}
+            {!isComplete ? <View style={styles.completionSpacer} /> : null}
+
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Seviye</Text>
+              <View style={styles.levelChip}>
+                <Text style={styles.levelChipText}>{levelLabel[profile.level ?? 'beginner']}</Text>
+              </View>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Yaş</Text>
+              <Text style={ageText ? styles.infoValue : styles.infoDash}>{ageText ?? '—'}</Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Dil</Text>
+              <Text style={styles.infoValue}>{languageLabel[currentLang]}</Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Hedefler</Text>
+              <Text style={goalsText ? styles.infoValue : styles.infoDash}>{goalsText ?? '—'}</Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Sakatlıklar</Text>
+              {injuriesText ? (
+                <View style={styles.injuryChip}>
+                  <Text style={styles.injuryChipText}>{injuriesText}</Text>
+                </View>
+              ) : (
+                <Text style={styles.infoDash}>—</Text>
+              )}
+            </View>
+
+            <Touchable onPress={() => navigation.navigate('EditProfile')} borderRadius={radius.md} style={styles.editLinkRow} accessibilityRole="button" accessibilityLabel="Profili düzenle">
+              <Text style={styles.editLink}>Profili Düzenle</Text>
+              <MaterialCommunityIcons name="chevron-right" size={20} color={colors.primary} />
+            </Touchable>
+          </Card>
+
+          {!isComplete ? (
+            <View style={styles.wizardWrap}>
               <ProfileSetupWizard profile={profile} />
             </View>
           ) : null}
 
-          <Text style={styles.sectionHeading}>Hesap ayarları</Text>
-          <Card variant="default" style={styles.actionsCard}>
-            {accountRows.map((item, index) => (
+          <Text style={styles.menuSectionLabel}>Menü</Text>
+          <Card variant="default" style={styles.menuCard}>
+            {menuRows.map((item, index) => (
               <Touchable
                 key={item.key}
                 onPress={() => {
                   if (item.kind === 'language') setLanguageSheetVisible(true);
                   else item.onPress();
                 }}
-                style={[styles.actionItem, index < accountRows.length - 1 ? styles.actionItemDivider : null]}
+                style={[styles.menuRow, index < menuRows.length - 1 ? styles.menuRowBorder : null]}
                 borderRadius={radius.md}
                 accessibilityRole="button"
                 accessibilityLabel={item.label}
               >
-                <View style={styles.actionLeft}>
-                  <MaterialCommunityIcons name={item.icon as never} size={22} color={colors.primaryDark} />
-                  <Text style={styles.actionText}>{item.label}</Text>
+                <View style={[styles.menuIconCircle, { backgroundColor: item.iconBg }]}>
+                  <MaterialCommunityIcons name={item.icon as never} size={18} color={item.iconColor} />
                 </View>
+                <Text style={styles.menuLabel}>{item.label}</Text>
                 {item.kind === 'language' ? (
-                  <View style={styles.actionRight}>
-                    <Text style={styles.actionTrailing}>{languageLabel[currentLang]}</Text>
+                  <View style={styles.menuRight}>
+                    <Text style={styles.menuTrailing}>{languageLabel[currentLang]}</Text>
                     <MaterialCommunityIcons name="chevron-right" size={22} color={colors.textMuted} />
                   </View>
                 ) : (
@@ -216,11 +290,9 @@ const ProfileScreen = () => {
             ))}
           </Card>
 
-          <Touchable onPress={() => setShowSignOutModal(true)} style={styles.logoutRow} borderRadius={radius.md} accessibilityRole="button" accessibilityLabel="Çıkış yap">
-            <MaterialCommunityIcons name="logout-variant" size={22} color={colors.error} />
-            <Text style={styles.logoutText}>Çıkış yap</Text>
+          <Touchable onPress={onSignOutPress} borderRadius={radius.sm} style={styles.signOutWrap} accessibilityRole="button" accessibilityLabel="Çıkış yap">
+            <Text style={styles.signOutText}>Çıkış Yap</Text>
           </Touchable>
-
           <Text style={styles.version}>YogAI v1.0.0</Text>
         </View>
       </ScrollView>
@@ -249,20 +321,6 @@ const ProfileScreen = () => {
           {currentLang === 'en' ? <MaterialCommunityIcons name="check" size={22} color={colors.primaryDark} /> : null}
         </Touchable>
       </BottomSheet>
-
-      <AppModal
-        visible={showSignOutModal}
-        onClose={() => setShowSignOutModal(false)}
-        title="Çıkış yapmak istediğine emin misin?"
-        icon="logout"
-        iconColor={colors.error}
-        actions={[
-          { label: 'İptal', variant: 'ghost', onPress: () => setShowSignOutModal(false) },
-          { label: 'Çıkış Yap', variant: 'danger', onPress: () => { setShowSignOutModal(false); void onSignOut(); } },
-        ]}
-        autoDismissMs={10000}
-        dismissOnBackdrop
-      />
     </SafeAreaView>
   );
 };
@@ -272,124 +330,66 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   scrollContent: { paddingBottom: TAB_SCENE_BOTTOM_PADDING + spacing.xxl },
   errorWrap: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.base },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  hero: {
+    paddingTop: spacing.xxl,
+    paddingBottom: spacing.xl,
     paddingHorizontal: spacing.base,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.background,
-  },
-  topBarIconBtn: { padding: spacing.xs, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
-  navWordmark: {
-    fontFamily: serif,
-    fontSize: 22,
-    fontWeight: '700',
-    color: colors.primaryDark,
-    letterSpacing: 0.5,
-  },
-  heroCard: {
-    marginHorizontal: spacing.base,
-    marginTop: spacing.xs,
-    borderRadius: 28,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.lg,
-    paddingHorizontal: spacing.lg,
     alignItems: 'center',
-    ...shadows.card,
-    ...Platform.select({
-      ios: { shadowColor: '#0d281c', shadowOpacity: 0.22, shadowRadius: 18, shadowOffset: { width: 0, height: 10 } },
-      android: { elevation: 6 },
-    }),
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    ...cardShadow,
   },
-  avatarWrap: { marginBottom: spacing.md },
   avatarOuter: {
-    padding: 4,
-    borderRadius: 60,
-    backgroundColor: '#FFFFFF',
-    ...shadows.md,
-  },
-  avatarInner: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#F4F7F4',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.9)',
+    marginBottom: spacing.md,
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.35)',
   },
-  avatarLetter: {
-    fontSize: 40,
-    fontWeight: '600',
-    color: colors.primaryDark,
-    fontFamily: Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' }),
+  avatarLetter: { ...typography.h1, color: colors.textOnPrimary, fontWeight: '700' },
+  heroName: { ...typography.h3, color: colors.textOnPrimary, textAlign: 'center' },
+  heroEmail: { ...typography.bodySm, color: 'rgba(255,255,255,0.85)', marginTop: spacing.xs, textAlign: 'center' },
+  sheet: { paddingHorizontal: spacing.base, paddingTop: spacing.lg, gap: spacing.lg },
+  infoCard: { padding: spacing.base, gap: spacing.sm },
+  completionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  completionTitle: { ...typography.bodyMedium, color: colors.text },
+  completionCount: { ...typography.bodySmMedium, color: colors.textMuted },
+  completionSpacer: { height: spacing.sm },
+  infoRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md, paddingVertical: spacing.xs },
+  infoLabel: { ...typography.bodySm, color: colors.textSecondary, flexShrink: 0, width: 100 },
+  infoValue: { ...typography.bodySm, color: colors.text, flex: 1, textAlign: 'right' },
+  infoDash: { ...typography.bodySm, color: colors.textMuted, flex: 1, textAlign: 'right' },
+  levelChip: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    backgroundColor: colors.primarySoft,
   },
-  heroName: {
-    fontFamily: serif,
-    fontSize: 22,
-    fontWeight: '600',
-    color: colors.textOnPrimary,
-    textAlign: 'center',
-    maxWidth: '100%',
-    textShadowColor: 'rgba(0,0,0,0.12)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  heroEmail: {
-    ...typography.bodySm,
-    color: 'rgba(255,255,255,0.92)',
-    marginTop: spacing.xs,
-    textAlign: 'center',
-    maxWidth: '100%',
-  },
-  statsStrip: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    marginTop: spacing.lg,
-    width: '100%',
-    borderRadius: radius.lg,
-    backgroundColor: 'rgba(255,255,255,0.34)',
+  levelChipText: { ...typography.captionMedium, color: colors.primary },
+  injuryChip: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    backgroundColor: colors.warningSoft,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.48)',
-    overflow: 'hidden',
-    paddingVertical: spacing.md,
+    borderColor: colors.warning,
+    maxWidth: '65%',
   },
-  statCell: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4 },
-  statDivider: { width: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.45)', marginVertical: spacing.xs },
-  statValue: { ...typography.h4, color: colors.textOnPrimary, fontWeight: '700' },
-  statLabel: {
-    ...typography.caption,
-    fontWeight: '600',
-    letterSpacing: 0.8,
-    color: 'rgba(255,255,255,0.88)',
-  },
-  sheet: {
-    paddingHorizontal: spacing.base,
-    paddingTop: spacing.xl,
-    gap: spacing.base,
-  },
-  incompleteBlock: { gap: spacing.sm },
-  summaryHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  summaryTitle: {
-    ...typography.h4,
-    fontFamily: serif,
-    color: colors.text,
-  },
-  completionBadge: { ...typography.bodySmMedium, color: colors.primaryDark },
-  sectionHeading: {
-    ...typography.bodyMedium,
-    fontFamily: serif,
-    color: colors.text,
-    marginTop: spacing.xs,
-  },
-  actionsCard: { paddingVertical: spacing.xs },
-  actionItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.md, paddingHorizontal: spacing.sm },
-  actionItemDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderLight },
-  actionLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  actionRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  actionTrailing: { ...typography.bodySm, color: colors.textSecondary },
-  actionText: { ...typography.body, color: colors.text },
+  injuryChipText: { ...typography.caption, color: colors.warningDark },
+  editLinkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, marginTop: spacing.sm, paddingVertical: spacing.sm },
+  editLink: { ...typography.bodySmMedium, color: colors.primary },
+  wizardWrap: {},
+  menuSectionLabel: { ...typography.captionMedium, color: colors.textMuted, marginTop: spacing.xs },
+  menuCard: { paddingVertical: spacing.xs },
+  menuRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md, paddingHorizontal: spacing.sm, gap: spacing.md },
+  menuRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderLight },
+  menuIconCircle: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  menuLabel: { ...typography.body, color: colors.text, flex: 1 },
+  menuRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  menuTrailing: { ...typography.bodySm, color: colors.textSecondary },
   langSheetRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -404,15 +404,8 @@ const styles = StyleSheet.create({
   langSheetRowActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   langSheetLabel: { ...typography.body, color: colors.text },
   langSheetLabelActive: { ...typography.bodyMedium, color: colors.primaryDark },
-  logoutRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.md,
-    marginTop: spacing.xs,
-  },
-  logoutText: { ...typography.bodyMedium, color: colors.error },
+  signOutWrap: { alignSelf: 'center', paddingVertical: spacing.sm, marginTop: spacing.sm },
+  signOutText: { ...typography.bodySm, color: colors.error, textAlign: 'center' },
   version: { ...typography.caption, color: colors.textMuted, textAlign: 'center', marginTop: spacing.sm },
 });
 

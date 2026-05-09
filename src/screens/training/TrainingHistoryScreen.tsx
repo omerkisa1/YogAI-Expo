@@ -60,8 +60,9 @@ const TrainingHistoryScreen = () => {
   const totalSessions = safeNumber(stats?.total_sessions, 0);
   const totalDurationSeconds = safeNumber(stats?.total_duration_sec, 0);
   const avgAccuracy = safeNumber(stats?.average_accuracy, 0);
-  const displayAccuracy = Math.round(avgAccuracy);
-  const heroProgress = totalSessions > 0 ? avgAccuracy : 0;
+  const displayAccuracyRaw = Math.round(avgAccuracy);
+  const displayAccuracy = Number.isNaN(displayAccuracyRaw) ? 0 : displayAccuracyRaw;
+  const heroProgress = totalSessions > 0 ? Math.min(100, Math.max(0, displayAccuracy)) : 0;
   const totalLabel = `Toplam: ${totalSessions} antrenman`;
 
   const onRefresh = useCallback(async () => {
@@ -133,7 +134,7 @@ const TrainingHistoryScreen = () => {
         ListHeaderComponent={
           <View>
             <Text style={styles.pageTitle}>Antrenmanlarım</Text>
-            <Button title="Plandan başlat" onPress={() => navigation.navigate('MainTabs', { screen: 'Plans' })} variant="outline" size="md" fullWidth icon="calendar-text-outline" accessibilityLabel="Plan seçerek antrenman başlat" style={styles.startFromPlanButton} />
+            <Button title="Plandan başlat" onPress={() => navigation.navigate('MainTabs', { screen: 'Plans' })} variant="primary" size="md" fullWidth icon="calendar-text-outline" accessibilityLabel="Plan seçerek antrenman başlat" style={styles.startFromPlanButton} />
             <Button title="Poz Testi" onPress={() => navigation.navigate('CameraTest')} variant="outline" size="md" fullWidth icon="camera-outline" accessibilityLabel="Poz testi aç" style={styles.cameraButton} />
             <LinearGradient colors={[colors.gradientHero[0], colors.gradientHero[1]]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
               <View style={styles.heroStatsRow}>
@@ -162,10 +163,19 @@ const TrainingHistoryScreen = () => {
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <View style={styles.emptyIconWrap}><MaterialCommunityIcons name="meditation" size={32} color={colors.accent} /></View>
+            <View style={styles.emptyIconWrap}>
+              <MaterialCommunityIcons name="meditation" size={40} color={colors.accent} />
+            </View>
             <Text style={styles.emptyTitle}>Henüz antrenman yapmadınız</Text>
-            <Text style={styles.emptyDescription}>Bir plan seçerek ilk antrenmanınıza başlayın.</Text>
-            <Button title="Planlara Git" onPress={() => navigation.navigate('MainTabs', { screen: 'Plans' })} variant="primary" size="lg" fullWidth={false} accessibilityLabel="Planlara git" />
+            <Text style={styles.emptyDescription}>İlk antrenmanınıza başlayarak ilerlemenizi takip edin.</Text>
+            <Button
+              title="İlk Antrenmanı Başlat"
+              onPress={() => navigation.navigate('MainTabs', { screen: 'Plans' })}
+              variant="primary"
+              size="lg"
+              fullWidth={false}
+              accessibilityLabel="Planlara git"
+            />
           </View>
         }
         ListFooterComponent={<View style={styles.listFooter} />}
@@ -181,7 +191,7 @@ const styles = StyleSheet.create({
   listContent: { paddingHorizontal: spacing.base, paddingBottom: TAB_SCENE_BOTTOM_PADDING + spacing.xxl, gap: spacing.sm },
   listFooter: { height: spacing.sm },
   pageTitle: { ...typography.h2, color: colors.text, marginTop: spacing.sm, marginBottom: spacing.sm },
-  heroCard: { padding: spacing.xl, borderRadius: radius.xl, gap: spacing.sm, marginBottom: spacing.base, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)' },
+  heroCard: { padding: spacing.xl, borderRadius: 20, gap: spacing.sm, marginBottom: spacing.base, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)' },
   heroStatsRow: { flexDirection: 'row', alignItems: 'stretch', justifyContent: 'space-between' },
   heroStatItem: { flex: 1, alignItems: 'center', gap: spacing.xs },
   heroSeparator: { width: 1, backgroundColor: 'rgba(255,255,255,0.2)', marginHorizontal: spacing.sm },
