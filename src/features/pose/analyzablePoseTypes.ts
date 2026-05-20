@@ -4,6 +4,9 @@ export type AnalyzablePose = {
   name_tr: string;
   difficulty: number;
   is_analyzable: boolean;
+  analysis_kind?: 'body' | 'face' | 'face_hand';
+  metric_type?: 'accuracy' | 'reps';
+  rep_target?: number;
   instructions_en: string;
   instructions_tr: string;
   category: string;
@@ -17,6 +20,9 @@ export type AnalyzablePoseMeta = {
   name_tr: string;
   difficulty: number;
   is_analyzable: boolean;
+  analysis_kind?: 'body' | 'face' | 'face_hand';
+  metric_type?: 'accuracy' | 'reps';
+  rep_target?: number;
 };
 
 export type YogaApiResponse<T> = {

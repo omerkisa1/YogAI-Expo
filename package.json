@@ -39,17 +39,18 @@
     "react-native-screens": "~4.16.0",
     "react-native-toast-message": "^2.3.3",
     "react-native-vision-camera": "^4.7.3",
+    "react-native-vision-camera-face-detector": "^1.10.2",
     "react-native-worklets": "0.5.1",
     "react-native-worklets-core": "^1.6.3",
     "vision-camera-pose-detector": "^1.1.0",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@react-native-community/cli": "latest",
     "@types/react": "~19.1.0",
     "babel-preset-expo": "~54.0.10",
     "patch-package": "^8.0.1",
-    "typescript": "~5.9.2",
-    "@react-native-community/cli": "latest"
+    "typescript": "~5.9.2"
   },
   "private": true
 }

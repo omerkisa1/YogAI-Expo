@@ -79,7 +79,10 @@ export const planService = {
       .then(r => extractPlan(r.data)),
 
   createPlan: (data: CreatePlanRequest) =>
-    api.post<ApiWrapper<RawPlan>>('/api/v1/yoga/plan', data)
+    api
+      .post<ApiWrapper<RawPlan>>('/api/v1/yoga/plan', data, {
+        skipGlobalErrorHandler: true,
+      })
       .then(r => extractPlan(r.data)),
 
   updatePlan: (id: string, data: PlanMetaUpdate) =>

@@ -9,4 +9,7 @@ export interface Pose {
   instructions_tr: string;
   contraindications: string[];
   is_analyzable: boolean;
+  analysis_kind: 'body' | 'face' | 'face_hand';
+  metric_type: 'accuracy' | 'reps';
+  rep_target: number;
 }

@@ -35,6 +35,9 @@ export interface Exercise {
   target_area: FocusArea;
   category: string;
   is_analyzable: boolean;
+  analysis_kind?: 'body' | 'face' | 'face_hand';
+  metric_type?: 'accuracy' | 'reps';
+  rep_target?: number;
 }
 
 export interface Plan {

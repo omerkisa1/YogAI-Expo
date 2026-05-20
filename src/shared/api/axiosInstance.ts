@@ -32,6 +32,7 @@ api.interceptors.response.use(
       skipGlobalErrorHandler?: boolean;
     };
     const shouldHandleGlobally = !config.skipGlobalErrorHandler;
+    const skip400Toast = status === 400 && config.skipGlobalErrorHandler;
 
     if (status === 401) {
       const user = auth.currentUser;
@@ -45,7 +46,7 @@ api.interceptors.response.use(
       useAuthStore.getState().setUser(null);
     }
 
-    if (shouldHandleGlobally) {
+    if (shouldHandleGlobally && !skip400Toast) {
       switch (status) {
         case 400:
           if (message) {

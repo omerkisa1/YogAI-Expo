@@ -46,6 +46,7 @@ const CreatePlanScreen = ({ navigation, route }: Props) => {
   const createPlanMutation = useCreatePlan();
   const pulseAnim = useSharedValue(1);
   const [inlineValidationError, setInlineValidationError] = useState<string | null>(null);
+  const [inlineValidationMeta, setInlineValidationMeta] = useState<string | null>(null);
   const [showServerError, setShowServerError] = useState(false);
 
   const { control, handleSubmit, watch, setValue } = useForm<CreatePlanRequest>({
@@ -72,7 +73,9 @@ const CreatePlanScreen = ({ navigation, route }: Props) => {
   const inlineSuggestion = useMemo(() => 'Öneri: Süreyi kısaltmayı veya odak alanını genişletmeyi deneyin.', []);
 
   const onSubmit = handleSubmit(async values => {
-    setInlineValidationError(null); setShowServerError(false);
+    setInlineValidationError(null);
+    setInlineValidationMeta(null);
+    setShowServerError(false);
     try {
       const result = await createPlanMutation.mutateAsync(values);
       Toast.show({ type: 'success', position: 'top', text1: 'Plan oluşturuldu', text2: 'Plan detay ekranına yönlendiriliyorsunuz.' });
@@ -81,8 +84,31 @@ const CreatePlanScreen = ({ navigation, route }: Props) => {
     } catch (error) {
       if (axios.isAxiosError(error)) {
         const status = error.response?.status;
-        const backendMessage = (error.response?.data as { error?: string; message?: string } | undefined)?.error || (error.response?.data as { error?: string; message?: string } | undefined)?.message;
-        if (status === 400) { setInlineValidationError(backendMessage ?? 'Seçilen filtrelerle plan oluşturulamadı.'); return; }
+        const payload = error.response?.data as
+          | {
+              error?: string;
+              message?: string;
+              available_poses?: number;
+              max_duration?: number;
+              suggestion?: string;
+            }
+          | undefined;
+        const backendMessage = payload?.error || payload?.message;
+        const metaParts: string[] = [];
+        if (typeof payload?.available_poses === 'number') {
+          metaParts.push(`Uygun poz: ${payload.available_poses}`);
+        }
+        if (typeof payload?.max_duration === 'number' && payload.max_duration > 0) {
+          metaParts.push(`Max süre ~${payload.max_duration} dk`);
+        }
+        if (typeof payload?.suggestion === 'string' && payload.suggestion.length > 0) {
+          metaParts.push(payload.suggestion);
+        }
+        if (status === 400) {
+          setInlineValidationMeta(metaParts.length > 0 ? metaParts.join(' · ') : null);
+          setInlineValidationError(backendMessage ?? 'Seçilen filtrelerle plan oluşturulamadı.');
+          return;
+        }
         if (status && status >= 500) { setShowServerError(true); return; }
       }
       Toast.show({ type: 'error', position: 'top', text1: 'Plan oluşturulamadı', text2: 'Lütfen tekrar deneyin.' });
@@ -144,6 +170,9 @@ const CreatePlanScreen = ({ navigation, route }: Props) => {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Sakatlıklarınız (varsa)</Text>
+          <Text style={styles.injuriesHint}>
+            Profilde kayıtlı olanlar ve burada seçtikleriniz bu istek için birleştirilir.
+          </Text>
           <View style={styles.chipWrap}>
             {injuryOptions.map(injury => (
               <Touchable key={injury.key} onPress={() => toggleInjury(injury.key)} style={[styles.injuryChip, selectedInjuries.includes(injury.key) ? styles.injuryChipSelected : styles.injuryChipUnselected]} borderRadius={radius.full} accessibilityRole="button" accessibilityLabel={`${injury.label} sakatlık seç`}>
@@ -169,6 +198,9 @@ const CreatePlanScreen = ({ navigation, route }: Props) => {
               <Text style={styles.inlineErrorTitle}>Plan oluşturma hatası</Text>
             </View>
             <Text style={styles.inlineErrorText}>{inlineValidationError}</Text>
+            {inlineValidationMeta ? (
+              <Text style={styles.inlineErrorMeta}>{inlineValidationMeta}</Text>
+            ) : null}
             <Text style={styles.inlineSuggestion}>{inlineSuggestion}</Text>
           </View>
         ) : null}
@@ -205,6 +237,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: spacing.base, paddingBottom: spacing.xxxl, gap: spacing.lg },
   section: { gap: spacing.sm },
   sectionTitle: { ...typography.h4, color: colors.text },
+  injuriesHint: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.sm },
   levelGrid: { flexDirection: 'row', gap: spacing.md },
   levelCardPressable: { flex: 1, borderRadius: radius.lg },
   levelCardPressableSelected: { transform: [{ scale: 1.02 }] },
@@ -239,6 +272,7 @@ const styles = StyleSheet.create({
   inlineErrorHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs },
   inlineErrorTitle: { ...typography.bodySmMedium, color: colors.error },
   inlineErrorText: { ...typography.bodySm, color: colors.text },
+  inlineErrorMeta: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
   inlineSuggestion: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
   serverErrorWrap: { marginBottom: spacing.sm },
   overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(16,16,16,0.45)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl },

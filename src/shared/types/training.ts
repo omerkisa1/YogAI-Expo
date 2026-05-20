@@ -14,6 +14,7 @@ export interface TrainingSession {
   average_accuracy?: number;
   total_duration_sec?: number;
   results?: PoseResult[];
+  plan_title?: string;
 }
 
 export interface StartSessionResponse {

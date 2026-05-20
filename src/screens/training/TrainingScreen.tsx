@@ -13,11 +13,13 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  Camera,
+  Camera as VisionCamera,
   useCameraDevice,
   useCameraFormat,
   useCameraPermission,
 } from 'react-native-vision-camera';
+import type { Camera as VisionCameraType } from 'react-native-vision-camera';
+import { Camera as FaceDetectorCamera } from 'react-native-vision-camera-face-detector';
 import type { Orientation } from 'react-native-vision-camera';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -25,6 +27,8 @@ import { usePlan } from '@/features/plans/hooks/usePlan';
 import { useProfile } from '@/features/profile/hooks/useProfile';
 import { usePoseDetailAndRules } from '@/features/pose/usePoseDetailAndRules';
 import { usePoseVisionPipeline } from '@/features/pose/usePoseVisionPipeline';
+import { faceLandmarkerDetectionCallback, getFaceDetectionOptions, useFaceLandmarker } from '@/features/pose/useFaceLandmarker';
+import { HAND_LANDMARKER_SUPPORTED } from '@/features/pose/useHandLandmarker';
 import { useCompleteTrainingSession, useStartTrainingSession, useSubmitPose } from '@/features/training/hooks/useTraining';
 import Toast from 'react-native-toast-message';
 import AppModal from '@/shared/components/AppModal';
@@ -39,6 +43,7 @@ import LoadingView from '@/shared/components/LoadingView';
 import type { Exercise } from '@/shared/types/plan';
 import type { RootStackParamList } from '@/navigation/types';
 import type { AnalyzeResult, LandmarkPoint } from '@/lib/poseAnalyzer';
+import { FACE_EXERCISE_CONFIGS, createFaceRepCounter, type FaceRepResult } from '@/lib/faceRepCounter';
 import { getPreviewContentExtent } from '@/lib/poseLandmarks';
 import { shouldWarnFullBodyLandmarks } from '@/lib/poseVisibilityGuards';
 import { colors } from '@/theme/colors';
@@ -125,6 +130,7 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResult | null>(null);
   const [fps, setFps] = useState(0);
   const [overlaySize, setOverlaySize] = useState({ width: 0, height: 0 });
+  const [faceRepResult, setFaceRepResult] = useState<FaceRepResult | null>(null);
   const [frameInfo, setFrameInfo] = useState<{
     w: number;
     h: number;
@@ -134,6 +140,12 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   } | null>(null);
   const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('front');
   const [previewScale, setPreviewScale] = useState(1);
+  const faceLandmarker = useFaceLandmarker();
+  const faceCameraRef = useRef<VisionCameraType | null>(null);
+  const faceDetectionOptions = useMemo(
+    () => getFaceDetectionOptions(cameraFacing),
+    [cameraFacing],
+  );
 
   const devResizeMode = 'cover' as const;
   const devResizeModeRef = useRef<'cover' | 'contain'>('cover');
@@ -144,15 +156,35 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   const overlayLayoutRef = useRef({ w: 0, h: 0 });
   const selectedPoseIdRef = useRef<string | null>(null);
   const formatVideoRef = useRef<{ vw: number; vh: number } | null>(null);
+  const faceRepCounterRef = useRef<ReturnType<typeof createFaceRepCounter> | null>(null);
+  const lastFaceRepRef = useRef(0);
 
   const exercises = planQuery.data?.exercises ?? [];
   const currentExercise = exercises[currentIndex];
   const nextExercise = exercises[currentIndex + 1];
+  const analysisKind = useMemo(() => {
+    if (currentExercise?.analysis_kind === 'face_hand') return 'face_hand';
+    if (currentExercise?.analysis_kind === 'face') return 'face';
+    if (currentExercise?.pose_id && FACE_EXERCISE_CONFIGS[currentExercise.pose_id]) return 'face';
+    return 'body';
+  }, [currentExercise?.analysis_kind, currentExercise?.pose_id]);
+  const faceExerciseConfig = useMemo(
+    () => (currentExercise?.pose_id ? FACE_EXERCISE_CONFIGS[currentExercise.pose_id] : null),
+    [currentExercise?.pose_id],
+  );
+  const isFaceExercise = analysisKind === 'face';
+  const isFaceHandExercise = analysisKind === 'face_hand';
+  const isBodyExercise = analysisKind === 'body';
+  const isFaceHandSupported = HAND_LANDMARKER_SUPPORTED;
+  const isFaceRepMode = isFaceExercise && Boolean(faceExerciseConfig);
+  const isRepExercise = isFaceRepMode || (isFaceHandExercise && isFaceHandSupported);
+  const isTimedExercise = isBodyExercise || !isRepExercise;
+  const repTarget = currentExercise?.rep_target ?? faceExerciseConfig?.repTarget ?? 0;
   const planTitle = locale === 'tr'
     ? (planQuery.data?.title_tr || planQuery.data?.title_en || 'Antrenman')
     : (planQuery.data?.title_en || planQuery.data?.title_tr || 'Workout');
 
-  const liveAcc = analyzeResult?.accuracyPercent;
+  const liveAcc = isBodyExercise ? analyzeResult?.accuracyPercent : null;
   const accuracyDisplay = useMemo(() => (liveAcc != null ? `${liveAcc.toFixed(1)}%` : '—'), [liveAcc]);
   const sessionProgressPct = useMemo(
     () => (exercises.length > 0 ? (currentIndex / exercises.length) * 100 : 0),
@@ -161,7 +193,8 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   const onHudQuit = useCallback(() => setShowQuitModal(true), []);
   const onSelectZoom = useCallback((scale: number) => setPreviewScale(scale), []);
 
-  const poseIdForRules = currentExercise?.is_analyzable ? currentExercise.pose_id : null;
+  const poseIdForRules =
+    currentExercise?.is_analyzable && isBodyExercise ? currentExercise.pose_id : null;
 
   const { rulesRef, rulesOriginRef } = usePoseDetailAndRules(poseIdForRules);
 
@@ -201,7 +234,10 @@ const TrainingScreen = ({ route, navigation }: Props) => {
     setFrameInfo,
     setAnalyzeResult,
     setFps,
-    onSmoothedAccuracy: currentExercise?.is_analyzable ? onSmoothedAccuracy : undefined,
+    onSmoothedAccuracy:
+      isBodyExercise && currentExercise?.is_analyzable
+        ? onSmoothedAccuracy
+        : undefined,
   });
 
   useEffect(() => {
@@ -211,22 +247,64 @@ const TrainingScreen = ({ route, navigation }: Props) => {
     setAnalyzeResult(null);
     setFps(0);
     lastResultRef.current = null;
+    faceRepCounterRef.current = null;
+    lastFaceRepRef.current = 0;
+    setFaceRepResult(null);
   }, [currentIndex, currentExercise?.pose_id, resetSmoothers]);
+
+  useEffect(() => {
+    if (screenState === 'posing' && isFaceExercise) {
+      faceLandmarker.start();
+    } else {
+      faceLandmarker.stop();
+    }
+  }, [faceLandmarker, isFaceExercise, screenState]);
+
+  useEffect(() => {
+    if (screenState !== 'posing' || !isFaceRepMode) return;
+    if (!faceLandmarker.currentFrame?.faceDetected) return;
+    if (!faceRepCounterRef.current && currentExercise?.pose_id) {
+      faceRepCounterRef.current = createFaceRepCounter(
+        currentExercise.pose_id,
+        repTarget || undefined,
+      );
+    }
+  }, [
+    currentExercise?.pose_id,
+    faceLandmarker.currentFrame?.faceDetected,
+    isFaceRepMode,
+    repTarget,
+    screenState,
+  ]);
+
+  useEffect(() => {
+    if (screenState !== 'posing' || !isFaceRepMode) return;
+    if (!faceLandmarker.currentFrame?.faceDetected) {
+      setFaceRepResult(null);
+      return;
+    }
+    if (!faceRepCounterRef.current || !faceLandmarker.currentFrame) return;
+    const result = faceRepCounterRef.current.update(
+      faceLandmarker.currentFrame.blendshapes,
+    );
+    setFaceRepResult(result);
+  }, [faceLandmarker.currentFrame, isFaceRepMode, screenState]);
 
   useEffect(() => {
     if (currentExercise) {
       const dur = getPoseDuration(currentExercise.duration_min);
-      setTimeLeft(dur);
+      setTimeLeft(isTimedExercise ? dur : 0);
       elapsedRef.current = 0;
       setIsTimerRunning(true);
     }
-  }, [currentExercise]);
+  }, [currentExercise, isTimedExercise]);
 
   useEffect(() => {
-    if (!isTimerRunning || timeLeft <= 0) return;
+    if (!isTimerRunning) return;
 
     timerRef.current = setInterval(() => {
       elapsedRef.current += 1;
+      if (!isTimedExercise) return;
       setTimeLeft(prev => {
         if (prev <= 1) {
           setIsTimerRunning(false);
@@ -239,14 +317,15 @@ const TrainingScreen = ({ route, navigation }: Props) => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isTimerRunning, timeLeft]);
+  }, [isTimerRunning, isTimedExercise]);
 
   useEffect(() => {
-    if (timeLeft === 0 && isSubmitting === false && currentExercise && screenState === 'posing') {
+    if (isTimedExercise && timeLeft === 0 && isSubmitting === false && currentExercise && screenState === 'posing') {
       void handlePoseComplete(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeLeft]);
+
 
   useEffect(() => {
     return () => {
@@ -273,6 +352,8 @@ const TrainingScreen = ({ route, navigation }: Props) => {
       let accuracy = 0;
       if (skipped) {
         accuracy = 0;
+      } else if (isRepExercise) {
+        accuracy = 100;
       } else if (!currentExercise.is_analyzable) {
         accuracy = 0;
       } else {
@@ -328,6 +409,12 @@ const TrainingScreen = ({ route, navigation }: Props) => {
     ],
   );
 
+  useEffect(() => {
+    if (!isFaceRepMode || !faceRepResult?.isComplete) return;
+    if (isSubmitting || screenState !== 'posing') return;
+    void handlePoseComplete(false);
+  }, [faceRepResult?.isComplete, handlePoseComplete, isFaceRepMode, isSubmitting, screenState]);
+
   const handleQuitConfirm = () => {
     stopTimer();
     setShowQuitModal(false);
@@ -373,8 +460,8 @@ const TrainingScreen = ({ route, navigation }: Props) => {
 
   const showFullBodyWarning = useMemo(
     () =>
-      Boolean(currentExercise?.is_analyzable && shouldWarnFullBodyLandmarks(landmarks)),
-    [currentExercise?.is_analyzable, landmarks],
+      Boolean(isBodyExercise && currentExercise?.is_analyzable && shouldWarnFullBodyLandmarks(landmarks)),
+    [currentExercise?.is_analyzable, isBodyExercise, landmarks],
   );
 
   const onCameraLayout = (e: LayoutChangeEvent) => {
@@ -528,13 +615,21 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   }
 
   const totalDuration = getPoseDuration(currentExercise.duration_min);
-  const progressPercent =
-    totalDuration > 0 ? ((totalDuration - timeLeft) / totalDuration) * 100 : 0;
+  const repProgressPercent = faceRepResult ? faceRepResult.progress * 100 : 0;
+  const repTargetValue = faceRepResult?.target ?? (repTarget || 0);
+  const progressPercent = isRepExercise
+    ? repProgressPercent
+    : totalDuration > 0
+      ? ((totalDuration - timeLeft) / totalDuration) * 100
+      : 0;
+  const timerDisplay = isRepExercise
+    ? `${faceRepResult?.reps ?? 0} / ${repTargetValue}`
+    : formatTime(timeLeft);
   const categoryColor = categoryColorMap[currentExercise.category] ?? colors.textMuted;
   const categoryLabel = categoryLabelMap[currentExercise.category] ?? currentExercise.category;
 
-  const analyzableMissingDevice =
-    currentExercise.is_analyzable && device == null;
+  const requiresCamera = isBodyExercise ? currentExercise.is_analyzable : true;
+  const analyzableMissingDevice = requiresCamera && device == null;
 
   if (analyzableMissingDevice) {
     return (
@@ -557,7 +652,7 @@ const TrainingScreen = ({ route, navigation }: Props) => {
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
       <View style={styles.cameraLayer} pointerEvents="box-none">
-        {currentExercise.is_analyzable && device ? (
+        {requiresCamera && device ? (
           <View style={styles.cameraClip}>
             {overlaySize.width > 0 && overlaySize.height > 0 ? (
               <View
@@ -573,32 +668,52 @@ const TrainingScreen = ({ route, navigation }: Props) => {
                 ]}
                 pointerEvents="box-none"
               >
-                <Camera
-                  style={StyleSheet.absoluteFill}
-                  device={device}
-                  isActive={screenState === 'posing'}
-                  format={format}
-                  fps={30}
-                  photo={false}
-                  video={false}
-                  audio={false}
-                  enableBufferCompression={false}
-                  frameProcessor={frameProcessor}
-                  pixelFormat="yuv"
-                  videoStabilizationMode="off"
-                  outputOrientation="device"
-                  resizeMode={devResizeMode}
-                />
-                {landmarks.length > 0 && previewInnerW > 0 && (
-                  <SkeletonOverlay
-                    landmarks={landmarks}
-                    mirror
-                    width={previewInnerW}
-                    height={previewInnerH}
-                    cropTransform={coverCropTransform}
-                    containFit={containFitTransform}
-                  />
-                )}
+                  {isFaceExercise ? (
+                    <FaceDetectorCamera
+                      ref={faceCameraRef}
+                      style={StyleSheet.absoluteFill}
+                      device={device}
+                      isActive={screenState === 'posing'}
+                      format={format}
+                      fps={30}
+                      photo={false}
+                      video={false}
+                      audio={false}
+                      enableBufferCompression={false}
+                      faceDetectionCallback={faceLandmarkerDetectionCallback}
+                      faceDetectionOptions={faceDetectionOptions}
+                      videoStabilizationMode="off"
+                      outputOrientation="device"
+                      resizeMode={devResizeMode}
+                    />
+                  ) : (
+                    <VisionCamera
+                      style={StyleSheet.absoluteFill}
+                      device={device}
+                      isActive={screenState === 'posing'}
+                      format={format}
+                      fps={30}
+                      photo={false}
+                      video={false}
+                      audio={false}
+                      enableBufferCompression={false}
+                      frameProcessor={isBodyExercise ? frameProcessor : undefined}
+                      pixelFormat="yuv"
+                      videoStabilizationMode="off"
+                      outputOrientation="device"
+                      resizeMode={devResizeMode}
+                    />
+                  )}
+                  {isBodyExercise && landmarks.length > 0 && previewInnerW > 0 && (
+                    <SkeletonOverlay
+                      landmarks={landmarks}
+                      mirror
+                      width={previewInnerW}
+                      height={previewInnerH}
+                      cropTransform={coverCropTransform}
+                      containFit={containFitTransform}
+                    />
+                  )}
               </View>
             ) : null}
           </View>
@@ -624,9 +739,9 @@ const TrainingScreen = ({ route, navigation }: Props) => {
         exerciseIndex={currentIndex}
         exerciseCount={exercises.length}
         fps={fps}
-        showFps={currentExercise.is_analyzable}
+        showFps={Boolean(isBodyExercise && currentExercise.is_analyzable)}
         onQuitPress={onHudQuit}
-        showCameraControls={Boolean(currentExercise.is_analyzable && device)}
+        showCameraControls={Boolean(requiresCamera && device)}
         cameraFacing={cameraFacing}
         onFlipCamera={() => setCameraFacing(f => (f === 'front' ? 'back' : 'front'))}
         previewScale={previewScale}
@@ -634,11 +749,11 @@ const TrainingScreen = ({ route, navigation }: Props) => {
         onSelectZoom={onSelectZoom}
         showFullBodyWarning={showFullBodyWarning}
         sessionProgressPct={sessionProgressPct}
-        timerText={formatTime(timeLeft)}
+        timerText={timerDisplay}
         poseProgressPct={progressPercent}
         accuracyDisplay={accuracyDisplay}
-        showAccuracy={currentExercise.is_analyzable}
-        showNoAnalyzeHint={!currentExercise.is_analyzable}
+        showAccuracy={Boolean(isBodyExercise && currentExercise.is_analyzable)}
+        showNoAnalyzeHint={!isRepExercise && (!currentExercise.is_analyzable || !isBodyExercise)}
         categoryLabel={categoryLabel}
         categoryColor={categoryColor}
         poseName={locale === 'tr' ? (currentExercise.name_tr || currentExercise.name_en) : (currentExercise.name_en || currentExercise.name_tr)}

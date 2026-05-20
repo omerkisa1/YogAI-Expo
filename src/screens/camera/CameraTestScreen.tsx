@@ -17,11 +17,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  Camera,
+  Camera as VisionCamera,
   useCameraDevice,
   useCameraFormat,
   useCameraPermission,
 } from 'react-native-vision-camera';
+import type { Camera as VisionCameraType } from 'react-native-vision-camera';
+import { Camera as FaceDetectorCamera } from 'react-native-vision-camera-face-detector';
 import type { Orientation } from 'react-native-vision-camera';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
@@ -32,6 +34,8 @@ import api from '@/shared/api/axiosInstance';
 import type { AnalyzablePoseMeta, YogaApiResponse } from '@/features/pose/analyzablePoseTypes';
 import { usePoseDetailAndRules, type RulesSourceUi } from '@/features/pose/usePoseDetailAndRules';
 import { usePoseVisionPipeline } from '@/features/pose/usePoseVisionPipeline';
+import { faceLandmarkerDetectionCallback, getFaceDetectionOptions, useFaceLandmarker } from '@/features/pose/useFaceLandmarker';
+import { HAND_LANDMARKER_SUPPORTED, useHandLandmarker } from '@/features/pose/useHandLandmarker';
 import Button from '@/shared/components/Button';
 import {
   SkeletonOverlay,
@@ -41,6 +45,7 @@ import {
 import type { RootStackParamList } from '@/navigation/types';
 import { RULE_TRIANGLE_VISIBILITY, type AnalyzeResult, type LandmarkPoint } from '@/lib/poseAnalyzer';
 import { filterAnalyzablePosesForUser } from '@/lib/analyzablePoseFilters';
+import { FACE_EXERCISE_CONFIGS, createFaceRepCounter, type FaceRepResult } from '@/lib/faceRepCounter';
 import { shouldWarnFullBodyLandmarks } from '@/lib/poseVisibilityGuards';
 import { getPreviewContentExtent, POSE_LANDMARK_KEYS } from '@/lib/poseLandmarks';
 import type { VisionPoseBundle } from '@/lib/poseDiagnosticsLog';
@@ -176,6 +181,9 @@ const CameraTestScreen = ({ navigation }: Props) => {
   const [overlaySize, setOverlaySize] = useState({ width: 0, height: 0 });
   const [showDevDebug, setShowDevDebug] = useState(false);
   const [completedAccuracy, setCompletedAccuracy] = useState<number | null>(null);
+  const [completedReps, setCompletedReps] = useState<number | null>(null);
+  const [faceRepResult, setFaceRepResult] = useState<FaceRepResult | null>(null);
+  const [faceRepPulse, setFaceRepPulse] = useState(false);
 
   /** DEV: frame metadata for diagnostics */
   const [frameInfo, setFrameInfo] = useState<{
@@ -202,6 +210,19 @@ const CameraTestScreen = ({ navigation }: Props) => {
     [posesQuery.data],
   );
 
+  const bodyPoses = useMemo(
+    () => userPoses.filter(p => !p.analysis_kind || p.analysis_kind === 'body'),
+    [userPoses],
+  );
+  const facePoses = useMemo(
+    () => userPoses.filter(p => p.analysis_kind === 'face'),
+    [userPoses],
+  );
+  const faceHandPoses = useMemo(
+    () => userPoses.filter(p => p.analysis_kind === 'face_hand'),
+    [userPoses],
+  );
+
   useEffect(() => {
     if (selectedPoseId && !userPoses.some(p => p.pose_id === selectedPoseId)) {
       setSelectedPoseId(null);
@@ -216,17 +237,50 @@ const CameraTestScreen = ({ navigation }: Props) => {
     rulesSourceUi,
   } = usePoseDetailAndRules(selectedPoseId);
 
+  const analysisKind = useMemo(() => {
+    if (selectedPose?.analysis_kind === 'face_hand') return 'face_hand';
+    if (selectedPose?.analysis_kind === 'face') return 'face';
+    if (selectedPoseId && FACE_EXERCISE_CONFIGS[selectedPoseId]) return 'face';
+    return 'body';
+  }, [selectedPose?.analysis_kind, selectedPoseId]);
+
+  const faceExerciseConfig = useMemo(
+    () => (selectedPoseId ? FACE_EXERCISE_CONFIGS[selectedPoseId] : null),
+    [selectedPoseId],
+  );
+
+  const isFaceExercise = analysisKind === 'face';
+  const isFaceHandExercise = analysisKind === 'face_hand';
+  const isBodyExercise = analysisKind === 'body';
+  const hasFaceConfig = Boolean(faceExerciseConfig);
+  const isFaceRepMode = isFaceExercise && hasFaceConfig;
+  const isFaceHandSupported = HAND_LANDMARKER_SUPPORTED;
+  const isRepExercise = isFaceRepMode || (isFaceHandExercise && isFaceHandSupported);
+  const isTimedExercise = isBodyExercise || !isRepExercise;
+  const isAnalyzing = screenState === 'active';
+
   const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('front');
   /** Önizleme: 1 = tam kadraj; <1 = daha “uzak” (küçük görüntü). ML tam çözünürlükte kalır. */
   const [previewScale, setPreviewScale] = useState<number>(1);
+  const faceDetectionOptions = useMemo(
+    () => getFaceDetectionOptions(cameraFacing),
+    [cameraFacing],
+  );
   const [instructionCardWidth, setInstructionCardWidth] = useState(
     () => Dimensions.get('window').width - spacing.base * 2,
   );
   const [instructionPageIndex, setInstructionPageIndex] = useState(0);
   const [showPoseRuleDetails, setShowPoseRuleDetails] = useState(false);
 
+  const faceLandmarker = useFaceLandmarker();
+  const handLandmarker = useHandLandmarker();
+
   const debugFrameCountRef = useRef(0);
   const DEBUG_MAX_FRAMES = 10;
+
+  const faceCameraRef = useRef<VisionCameraType | null>(null);
+  const faceRepCounterRef = useRef<ReturnType<typeof createFaceRepCounter> | null>(null);
+  const lastFaceRepRef = useRef(0);
 
   const overlayLayoutRef = useRef({ w: 0, h: 0 });
   const selectedPoseIdRef = useRef<string | null>(null);
@@ -318,7 +372,76 @@ const CameraTestScreen = ({ navigation }: Props) => {
   useEffect(() => {
     debugFrameCountRef.current = 0;
     resetSmoothers();
+    faceRepCounterRef.current = null;
+    lastFaceRepRef.current = 0;
+    setFaceRepResult(null);
+    setFaceRepPulse(false);
+    setCompletedReps(null);
   }, [selectedPoseId, resetSmoothers]);
+
+  useEffect(() => {
+    if (isAnalyzing && isFaceExercise) {
+      faceLandmarker.start();
+    } else {
+      faceLandmarker.stop();
+    }
+  }, [faceLandmarker, isAnalyzing, isFaceExercise]);
+
+  useEffect(() => {
+    if (isAnalyzing && isFaceHandExercise) {
+      handLandmarker.start();
+    } else {
+      handLandmarker.stop();
+    }
+  }, [handLandmarker, isAnalyzing, isFaceHandExercise]);
+
+  useEffect(() => {
+    if (!isAnalyzing || !isFaceRepMode) return;
+    if (!faceLandmarker.currentFrame?.faceDetected) return;
+    if (!faceRepCounterRef.current && selectedPoseId) {
+      faceRepCounterRef.current = createFaceRepCounter(
+        selectedPoseId,
+        selectedPose?.rep_target,
+      );
+    }
+  }, [
+    isAnalyzing,
+    isFaceRepMode,
+    faceLandmarker.currentFrame?.faceDetected,
+    selectedPoseId,
+    selectedPose?.rep_target,
+  ]);
+
+  useEffect(() => {
+    if (!isAnalyzing || !isFaceRepMode) return;
+    if (!faceLandmarker.currentFrame?.faceDetected) {
+      setFaceRepResult(null);
+      return;
+    }
+    if (!faceRepCounterRef.current || !faceLandmarker.currentFrame) return;
+    const result = faceRepCounterRef.current.update(
+      faceLandmarker.currentFrame.blendshapes,
+    );
+    setFaceRepResult(result);
+  }, [isAnalyzing, isFaceRepMode, faceLandmarker.currentFrame]);
+
+  useEffect(() => {
+    if (!faceRepResult) return;
+    if (faceRepResult.reps > lastFaceRepRef.current) {
+      setFaceRepPulse(true);
+      lastFaceRepRef.current = faceRepResult.reps;
+      const t = setTimeout(() => setFaceRepPulse(false), 160);
+      return () => clearTimeout(t);
+    }
+    lastFaceRepRef.current = faceRepResult.reps;
+    return undefined;
+  }, [faceRepResult?.reps]);
+
+  useEffect(() => {
+    if (!isFaceRepMode || !isAnalyzing || !faceRepResult?.isComplete) return;
+    setCompletedReps(faceRepResult.reps);
+    setScreenState('completed');
+  }, [faceRepResult?.isComplete, faceRepResult?.reps, isAnalyzing, isFaceRepMode]);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -407,15 +530,12 @@ const CameraTestScreen = ({ navigation }: Props) => {
   ]);
 
   const showFullBodyWarning = useMemo(
-    () => shouldWarnFullBodyLandmarks(landmarks),
-    [landmarks],
+    () => (isBodyExercise ? shouldWarnFullBodyLandmarks(landmarks) : false),
+    [isBodyExercise, landmarks],
   );
-
-  const isAnalyzing = screenState === 'active';
 
   const handleStart = () => {
     if (!selectedPoseId) return;
-    setTimeLeft(POSE_DURATION);
     setScreenState('active');
     setLandmarks([]);
     setAnalyzeResult(null);
@@ -423,7 +543,18 @@ const CameraTestScreen = ({ navigation }: Props) => {
     debugFrameCountRef.current = 0;
     lastResultRef.current = null;
     setCompletedAccuracy(null);
-    setIsTimerActive(true);
+    setCompletedReps(null);
+    setFaceRepResult(null);
+    faceRepCounterRef.current = null;
+    lastFaceRepRef.current = 0;
+    setFaceRepPulse(false);
+    if (isTimedExercise) {
+      setTimeLeft(POSE_DURATION);
+      setIsTimerActive(true);
+    } else {
+      setTimeLeft(0);
+      setIsTimerActive(false);
+    }
   };
 
   const handleStop = () => {
@@ -433,6 +564,11 @@ const CameraTestScreen = ({ navigation }: Props) => {
     setTimeLeft(POSE_DURATION);
     setLandmarks([]);
     setAnalyzeResult(null);
+    setFaceRepResult(null);
+    faceRepCounterRef.current = null;
+    lastFaceRepRef.current = 0;
+    setFaceRepPulse(false);
+    setCompletedReps(null);
     fpsCountRef.current = 0;
     setFps(0);
   };
@@ -442,6 +578,11 @@ const CameraTestScreen = ({ navigation }: Props) => {
     setScreenState('pose_selection');
     setTimeLeft(POSE_DURATION);
     setCompletedAccuracy(null);
+    setCompletedReps(null);
+    setFaceRepResult(null);
+    faceRepCounterRef.current = null;
+    lastFaceRepRef.current = 0;
+    setFaceRepPulse(false);
   };
 
   const onCameraLayout = (e: LayoutChangeEvent) => {
@@ -516,8 +657,14 @@ const CameraTestScreen = ({ navigation }: Props) => {
               {locale === 'tr' ? (selectedPose.name_tr || selectedPose.name_en) : (selectedPose.name_en || selectedPose.name_tr)}
             </Text>
           )}
-          <Text style={styles.completedDuration}>Süre: {POSE_DURATION} saniye</Text>
-          {completedAccuracy != null && (
+          {completedReps != null ? (
+            <Text style={styles.completedDuration}>
+              Tekrar: {completedReps} / {faceExerciseConfig?.repTarget ?? selectedPose?.rep_target ?? completedReps}
+            </Text>
+          ) : (
+            <Text style={styles.completedDuration}>Süre: {POSE_DURATION} saniye</Text>
+          )}
+          {completedAccuracy != null && completedReps == null && (
             <Text style={styles.completedAccuracy}>
               Son doğruluk: {completedAccuracy.toFixed(1)}%
             </Text>
@@ -559,6 +706,21 @@ const CameraTestScreen = ({ navigation }: Props) => {
   if (screenState === 'active') {
     const acc = analyzeResult?.accuracyPercent ?? 0;
     const accTint = accuracyColor(acc);
+    const faceEnterThreshold = faceExerciseConfig?.enterThreshold ?? 0.4;
+    const faceBarLabel = faceExerciseConfig?.barLabelKey ?? 'Seviye';
+    const faceFeedbackText = (() => {
+      if (!faceRepResult) return null;
+      if (faceRepResult.feedbackState === 'complete') {
+        return locale === 'tr' ? 'Tamamlandi' : 'Complete';
+      }
+      if (faceRepResult.feedbackState === 'good') {
+        return locale === 'tr' ? 'Iyi' : 'Good';
+      }
+      if (faceRepResult.feedbackState === 'hold') {
+        return locale === 'tr' ? 'Tut' : 'Hold';
+      }
+      return locale === 'tr' ? 'Basla' : 'Start';
+    })();
 
     return (
       <View style={styles.cameraFullScreen} onLayout={onCameraLayout}>
@@ -578,24 +740,44 @@ const CameraTestScreen = ({ navigation }: Props) => {
               ]}
               pointerEvents="box-none"
             >
-              <Camera
-                style={StyleSheet.absoluteFill}
-                device={device}
-                isActive={isAnalyzing}
-                format={format}
-                fps={30}
-                photo={false}
-                video={false}
-                audio={false}
-                enableBufferCompression={false}
-                frameProcessor={frameProcessor}
-                pixelFormat="yuv"
-                videoStabilizationMode="off"
-                outputOrientation="device"
-                resizeMode={devResizeMode}
-              />
+              {isFaceExercise ? (
+                <FaceDetectorCamera
+                  ref={faceCameraRef}
+                  style={StyleSheet.absoluteFill}
+                  device={device}
+                  isActive={isAnalyzing}
+                  format={format}
+                  fps={30}
+                  photo={false}
+                  video={false}
+                  audio={false}
+                  enableBufferCompression={false}
+                  faceDetectionCallback={faceLandmarkerDetectionCallback}
+                  faceDetectionOptions={faceDetectionOptions}
+                  videoStabilizationMode="off"
+                  outputOrientation="device"
+                  resizeMode={devResizeMode}
+                />
+              ) : (
+                <VisionCamera
+                  style={StyleSheet.absoluteFill}
+                  device={device}
+                  isActive={isAnalyzing}
+                  format={format}
+                  fps={30}
+                  photo={false}
+                  video={false}
+                  audio={false}
+                  enableBufferCompression={false}
+                  frameProcessor={isBodyExercise ? frameProcessor : undefined}
+                  pixelFormat="yuv"
+                  videoStabilizationMode="off"
+                  outputOrientation="device"
+                  resizeMode={devResizeMode}
+                />
+              )}
 
-              {landmarks.length > 0 && previewInnerW > 0 && (
+              {isBodyExercise && landmarks.length > 0 && previewInnerW > 0 && (
                 <SkeletonOverlay
                   landmarks={landmarks}
                   mirror
@@ -650,13 +832,17 @@ const CameraTestScreen = ({ navigation }: Props) => {
           </View>
         </View>
 
-        <View style={[styles.fpsPill, { top: insets.top + spacing.sm + 44 }]}>
-          <Text style={styles.fpsText}>FPS: {fps}</Text>
-        </View>
+        {isBodyExercise && (
+          <View style={[styles.fpsPill, { top: insets.top + spacing.sm + 44 }]}> 
+            <Text style={styles.fpsText}>FPS: {fps}</Text>
+          </View>
+        )}
 
-        <View style={[styles.timerOverlay, { top: insets.top + spacing.sm + 88 }]}>
-          <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
-        </View>
+        {isTimedExercise && (
+          <View style={[styles.timerOverlay, { top: insets.top + spacing.sm + 88 }]}> 
+            <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
+          </View>
+        )}
 
         {showFullBodyWarning && (
           <View
@@ -680,33 +866,99 @@ const CameraTestScreen = ({ navigation }: Props) => {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {SHOW_VERBOSE_RULES_BANNER ? <RulesSourceBanner state={rulesSourceUi} /> : null}
-          <View style={styles.accuracyPanel}>
-            <Text style={styles.accuracyLabel}>Accuracy</Text>
-            <Text style={[styles.accuracyPercent, { color: accTint }]}>
-              {analyzeResult ? `${acc.toFixed(1)}%` : '—'}
-            </Text>
-            <View style={[styles.progressTrack, { borderColor: accTint }]}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    width: `${Math.min(100, Math.max(0, acc))}%`,
-                    backgroundColor: accTint,
-                  },
-                ]}
-              />
-            </View>
-            {analyzeResult && (
-              <Text style={styles.targetRow}>
-                Hedef (kural ort.):{' '}
-                {targetPercentDisplay != null ? `${targetPercentDisplay.toFixed(1)}%` : '—'} | Fault: −
-                {analyzeResult.faultPenaltyTotal.toFixed(1)}%
+          {isFaceRepMode && faceRepResult && !faceRepResult.isComplete && (
+            <View style={styles.repCounterContainer}>
+              <Text style={[styles.repText, faceRepPulse && styles.repPulse]}>
+                {faceRepResult.reps} / {faceRepResult.target}
               </Text>
-            )}
-          </View>
+              <Text style={styles.repLabel}>Tekrar</Text>
+              <View style={styles.progressBarBg}>
+                <View
+                  style={[
+                    styles.progressBarFill,
+                    { width: `${Math.min(faceRepResult.progress * 100, 100)}%` },
+                  ]}
+                />
+              </View>
+            </View>
+          )}
 
-          {analyzeResult && analyzeResult.rules.length > 0 ? (
+          {isFaceRepMode && faceRepResult && !faceRepResult.isComplete && (
+            <View style={styles.barContainer}>
+              <Text style={styles.barLabel}>{faceBarLabel}</Text>
+              <View style={styles.barBg}>
+                <View
+                  style={[
+                    styles.barFill,
+                    {
+                      width: `${Math.min(faceRepResult.currentValue * 100, 100)}%`,
+                      backgroundColor:
+                        faceRepResult.currentValue >= faceEnterThreshold
+                          ? colors.success
+                          : colors.warning,
+                    },
+                  ]}
+                />
+                <View
+                  style={[
+                    styles.thresholdLine,
+                    { left: `${Math.min(faceEnterThreshold * 100, 100)}%` },
+                  ]}
+                />
+              </View>
+            </View>
+          )}
+
+          {isFaceRepMode && faceFeedbackText && !faceRepResult?.isComplete && (
+            <View style={styles.faceFeedback}>
+              <Text style={styles.faceFeedbackText}>{faceFeedbackText}</Text>
+            </View>
+          )}
+
+          {isFaceRepMode && isAnalyzing && !faceLandmarker.currentFrame?.faceDetected && (
+            <View style={styles.faceWarning}>
+              <Text style={styles.faceWarningText}>Yuz algilanmadi</Text>
+            </View>
+          )}
+
+          {isFaceHandExercise && !isFaceHandSupported && (
+            <View style={styles.faceWarning}>
+              <Text style={styles.faceWarningText}>El algilama desteklenmiyor, zamanlayici modu.</Text>
+            </View>
+          )}
+
+          {isBodyExercise && SHOW_VERBOSE_RULES_BANNER ? (
+            <RulesSourceBanner state={rulesSourceUi} />
+          ) : null}
+
+          {isBodyExercise && (
+            <View style={styles.accuracyPanel}>
+              <Text style={styles.accuracyLabel}>Accuracy</Text>
+              <Text style={[styles.accuracyPercent, { color: accTint }]}> 
+                {analyzeResult ? `${acc.toFixed(1)}%` : '—'}
+              </Text>
+              <View style={[styles.progressTrack, { borderColor: accTint }]}> 
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: `${Math.min(100, Math.max(0, acc))}%`,
+                      backgroundColor: accTint,
+                    },
+                  ]}
+                />
+              </View>
+              {analyzeResult && (
+                <Text style={styles.targetRow}>
+                  Hedef (kural ort.):{' '}
+                  {targetPercentDisplay != null ? `${targetPercentDisplay.toFixed(1)}%` : '—'} | Fault: −
+                  {analyzeResult.faultPenaltyTotal.toFixed(1)}%
+                </Text>
+              )}
+            </View>
+          )}
+
+          {isBodyExercise && analyzeResult && analyzeResult.rules.length > 0 ? (
             <TouchableOpacity
               style={styles.ruleDetailsToggle}
               onPress={() => setShowPoseRuleDetails(v => !v)}
@@ -724,7 +976,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
             </TouchableOpacity>
           ) : null}
 
-          {showPoseRuleDetails && analyzeResult && analyzeResult.rules.length > 0 && (
+          {isBodyExercise && showPoseRuleDetails && analyzeResult && analyzeResult.rules.length > 0 && (
             <View style={styles.rulesCard}>
               {analyzeResult.rules.map(rule => {
                 const border =
@@ -747,7 +999,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
                   ? (rule.feedbackTr || rule.feedbackEn || '')
                   : (rule.feedbackEn || rule.feedbackTr || '');
                 return (
-                  <View key={rule.ruleId} style={[styles.ruleRow, { borderLeftColor: border }]}>
+                  <View key={rule.ruleId} style={[styles.ruleRow, { borderLeftColor: border }]}> 
                     <View style={styles.ruleRowHeader}>
                       <MaterialCommunityIcons name={iconName} size={20} color={border} />
                       <Text style={styles.ruleTitle}>{rule.ruleId}</Text>
@@ -771,14 +1023,14 @@ const CameraTestScreen = ({ navigation }: Props) => {
             </View>
           )}
 
-          {__DEV__ && (
+          {isBodyExercise && __DEV__ && (
             <View style={styles.devRow}>
               <Text style={styles.devLabel}>Geliştirici: landmark görünürlük</Text>
               <Switch value={showDevDebug} onValueChange={setShowDevDebug} />
             </View>
           )}
 
-          {__DEV__ && (
+          {isBodyExercise && __DEV__ && (
             <View style={styles.devRow}>
               <Text style={styles.devLabel}>resizeMode: {devResizeMode}</Text>
               <Switch
@@ -788,7 +1040,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
             </View>
           )}
 
-          {__DEV__ && showDevDebug && frameInfo && (
+          {isBodyExercise && __DEV__ && showDevDebug && frameInfo && (
             <View style={styles.devCard}>
               <Text style={styles.devCardTitle}>[DEV] Frame Info</Text>
               <Text style={styles.devLine}>
@@ -805,7 +1057,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
             </View>
           )}
 
-          {__DEV__ && showDevDebug && landmarks.length > 0 && (
+          {isBodyExercise && __DEV__ && showDevDebug && landmarks.length > 0 && (
             <View style={styles.devCard}>
               <Text style={styles.devCardTitle}>[DEV] Landmark visibility</Text>
               {landmarks.map(lm => {
@@ -954,33 +1206,94 @@ const CameraTestScreen = ({ navigation }: Props) => {
           <Text style={styles.emptyText}>Analiz edilebilir poz bulunamadı.</Text>
         )}
 
-        {userPoses.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chipList}
-          >
-            {userPoses.map(pose => {
-              const isSelected = selectedPoseId === pose.pose_id;
-              return (
-                <TouchableOpacity
-                  key={pose.pose_id}
-                  onPress={() => setSelectedPoseId(pose.pose_id)}
-                  style={[styles.chip, isSelected && styles.chipSelected]}
-                  accessibilityRole="button"
-                  accessibilityLabel={locale === 'tr' ? (pose.name_tr || pose.name_en) : (pose.name_en || pose.name_tr)}
-                  accessibilityState={{ selected: isSelected }}
-                >
-                  <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
-                    {locale === 'tr' ? (pose.name_tr || pose.name_en) : (pose.name_en || pose.name_tr)}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+        {bodyPoses.length > 0 && (
+          <View style={styles.poseSection}>
+            <Text style={styles.poseSectionTitle}>Vucut Yogasi</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipList}
+            >
+              {bodyPoses.map(pose => {
+                const isSelected = selectedPoseId === pose.pose_id;
+                return (
+                  <TouchableOpacity
+                    key={pose.pose_id}
+                    onPress={() => setSelectedPoseId(pose.pose_id)}
+                    style={[styles.chip, isSelected && styles.chipSelected]}
+                    accessibilityRole="button"
+                    accessibilityLabel={locale === 'tr' ? (pose.name_tr || pose.name_en) : (pose.name_en || pose.name_tr)}
+                    accessibilityState={{ selected: isSelected }}
+                  >
+                    <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
+                      {locale === 'tr' ? (pose.name_tr || pose.name_en) : (pose.name_en || pose.name_tr)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
         )}
 
-        {selectedPoseId && SHOW_VERBOSE_RULES_BANNER ? (
+        {facePoses.length > 0 && (
+          <View style={styles.poseSection}>
+            <Text style={styles.poseSectionTitle}>Yuz Yogasi</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipList}
+            >
+              {facePoses.map(pose => {
+                const isSelected = selectedPoseId === pose.pose_id;
+                return (
+                  <TouchableOpacity
+                    key={pose.pose_id}
+                    onPress={() => setSelectedPoseId(pose.pose_id)}
+                    style={[styles.chip, isSelected && styles.chipSelected]}
+                    accessibilityRole="button"
+                    accessibilityLabel={locale === 'tr' ? (pose.name_tr || pose.name_en) : (pose.name_en || pose.name_tr)}
+                    accessibilityState={{ selected: isSelected }}
+                  >
+                    <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
+                      {locale === 'tr' ? (pose.name_tr || pose.name_en) : (pose.name_en || pose.name_tr)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
+        {faceHandPoses.length > 0 && (
+          <View style={styles.poseSection}>
+            <Text style={styles.poseSectionTitle}>Elle Yuz Yogasi</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipList}
+            >
+              {faceHandPoses.map(pose => {
+                const isSelected = selectedPoseId === pose.pose_id;
+                return (
+                  <TouchableOpacity
+                    key={pose.pose_id}
+                    onPress={() => setSelectedPoseId(pose.pose_id)}
+                    style={[styles.chip, isSelected && styles.chipSelected]}
+                    accessibilityRole="button"
+                    accessibilityLabel={locale === 'tr' ? (pose.name_tr || pose.name_en) : (pose.name_en || pose.name_tr)}
+                    accessibilityState={{ selected: isSelected }}
+                  >
+                    <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
+                      {locale === 'tr' ? (pose.name_tr || pose.name_en) : (pose.name_en || pose.name_tr)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
+        {selectedPoseId && SHOW_VERBOSE_RULES_BANNER && isBodyExercise ? (
           <RulesSourceBanner state={rulesSourceUi} />
         ) : null}
 
@@ -1199,6 +1512,13 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.xs,
   },
+  poseSection: {
+    gap: spacing.sm,
+  },
+  poseSectionTitle: {
+    ...typography.bodySmMedium,
+    color: colors.textSecondary,
+  },
   chip: {
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.sm,
@@ -1217,6 +1537,91 @@ const styles = StyleSheet.create({
   },
   chipTextSelected: {
     color: colors.textOnPrimary,
+  },
+  repCounterContainer: {
+    alignItems: 'center',
+    gap: spacing.xs,
+    padding: spacing.base,
+    borderRadius: radius.lg,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  repText: {
+    ...typography.h1,
+    color: colors.textOnDark,
+  },
+  repPulse: {
+    color: colors.success,
+    transform: [{ scale: 1.05 }],
+  },
+  repLabel: {
+    ...typography.caption,
+    color: 'rgba(255,255,255,0.8)',
+  },
+  progressBarBg: {
+    width: '100%',
+    height: 6,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: radius.full,
+    backgroundColor: colors.success,
+  },
+  barContainer: {
+    gap: spacing.xs,
+    padding: spacing.base,
+    borderRadius: radius.lg,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  barLabel: {
+    ...typography.bodySmMedium,
+    color: colors.textOnDark,
+  },
+  barBg: {
+    height: 10,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    overflow: 'hidden',
+  },
+  barFill: {
+    height: '100%',
+    borderRadius: radius.full,
+  },
+  thresholdLine: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 2,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+  },
+  faceFeedback: {
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.base,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  faceFeedbackText: {
+    ...typography.bodySmMedium,
+    color: colors.textOnDark,
+  },
+  faceWarning: {
+    padding: spacing.sm,
+    borderRadius: radius.lg,
+    backgroundColor: 'rgba(255, 243, 224, 0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 149, 0, 0.35)',
+  },
+  faceWarningText: {
+    ...typography.bodySmMedium,
+    color: colors.warningDark,
+    textAlign: 'center',
   },
   poseDetailCard: {
     backgroundColor: colors.surface,
