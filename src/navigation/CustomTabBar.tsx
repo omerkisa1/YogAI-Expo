@@ -38,6 +38,7 @@ const CustomTabBar = ({ state, descriptors, navigation }: BottomTabBarProps) => 
 
   const layoutsRef = useRef<{ x: number; width: number }[]>([]);
   const translateX = useSharedValue(0);
+  const pillVisibleRef = useRef(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [pillVisible, setPillVisible] = useState(false);
 
@@ -59,7 +60,10 @@ const CustomTabBar = ({ state, descriptors, navigation }: BottomTabBarProps) => 
       if (!L || L.width <= 0) return;
       const target = L.x + (L.width - PILL_WIDTH) / 2;
       translateX.value = reduceMotion ? withTiming(target, timingReduceMotion) : withSpring(target, springActive);
-      setPillVisible(true);
+      if (!pillVisibleRef.current) {
+        pillVisibleRef.current = true;
+        setPillVisible(true);
+      }
     },
     [reduceMotion, translateX],
   );

@@ -38,25 +38,31 @@ export function usePoseDetailAndRules(poseId: string | null) {
   const [rulesSourceUi, setRulesSourceUi] = useState<RulesSourceUi>(RULES_SOURCE_UI_INITIAL);
   const fallbackRulesWarnedRef = useRef<Set<string>>(new Set());
 
+  const patchRulesSourceUi = (next: RulesSourceUi) => {
+    setRulesSourceUi(prev =>
+      prev.phase === next.phase && prev.origin === next.origin && prev.count === next.count ? prev : next,
+    );
+  };
+
   useEffect(() => {
     if (!poseId) {
       rulesRef.current = [];
       rulesOriginRef.current = 'none';
-      setRulesSourceUi(RULES_SOURCE_UI_INITIAL);
+      patchRulesSourceUi(RULES_SOURCE_UI_INITIAL);
       return;
     }
 
     if (poseDetailQuery.isError) {
       rulesRef.current = [];
       rulesOriginRef.current = 'none';
-      setRulesSourceUi({ phase: 'error', origin: 'none', count: 0 });
+      patchRulesSourceUi({ phase: 'error', origin: 'none', count: 0 });
       return;
     }
 
     if (!selectedPose) {
       rulesRef.current = [];
       rulesOriginRef.current = 'none';
-      setRulesSourceUi({ phase: 'loading', origin: 'none', count: 0 });
+      patchRulesSourceUi({ phase: 'loading', origin: 'none', count: 0 });
       return;
     }
 
@@ -88,7 +94,7 @@ export function usePoseDetailAndRules(poseId: string | null) {
 
     rulesRef.current = rules;
     rulesOriginRef.current = origin;
-    setRulesSourceUi({ phase: 'ready', origin, count: rules.length });
+    patchRulesSourceUi({ phase: 'ready', origin, count: rules.length });
   }, [
     poseDetailQuery.isError,
     poseId,

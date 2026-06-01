@@ -257,7 +257,7 @@ const TrainingScreen = ({ route, navigation }: Props) => {
     } else {
       faceLandmarker.stop();
     }
-  }, [faceLandmarker, isFaceExercise, screenState]);
+  }, [faceLandmarker.start, faceLandmarker.stop, isFaceExercise, screenState]);
 
   useEffect(() => {
     if (screenState !== 'posing' || !isFaceRepMode) return;
@@ -276,27 +276,38 @@ const TrainingScreen = ({ route, navigation }: Props) => {
     screenState,
   ]);
 
+  const faceFrameTimestamp = faceLandmarker.currentFrame?.timestamp;
+  const faceFrameDetected = faceLandmarker.currentFrame?.faceDetected;
+
   useEffect(() => {
     if (screenState !== 'posing' || !isFaceRepMode) return;
-    if (!faceLandmarker.currentFrame?.faceDetected) {
+    const frame = faceLandmarker.currentFrame;
+    if (!frame?.faceDetected) {
       setFaceRepResult(null);
       return;
     }
-    if (!faceRepCounterRef.current || !faceLandmarker.currentFrame) return;
-    const result = faceRepCounterRef.current.update(
-      faceLandmarker.currentFrame.blendshapes,
-    );
-    setFaceRepResult(result);
-  }, [faceLandmarker.currentFrame, isFaceRepMode, screenState]);
+    if (!faceRepCounterRef.current) return;
+    const result = faceRepCounterRef.current.update(frame.blendshapes);
+    setFaceRepResult(prev => {
+      if (
+        prev?.reps === result.reps &&
+        prev?.isComplete === result.isComplete &&
+        prev?.feedbackState === result.feedbackState &&
+        Math.abs((prev?.currentValue ?? 0) - result.currentValue) < 0.01
+      ) {
+        return prev;
+      }
+      return result;
+    });
+  }, [faceFrameTimestamp, faceFrameDetected, isFaceRepMode, screenState]);
 
   useEffect(() => {
-    if (currentExercise) {
-      const dur = getPoseDuration(currentExercise.duration_min);
-      setTimeLeft(isTimedExercise ? dur : 0);
-      elapsedRef.current = 0;
-      setIsTimerRunning(true);
-    }
-  }, [currentExercise, isTimedExercise]);
+    if (!currentExercise) return;
+    const dur = getPoseDuration(currentExercise.duration_min);
+    setTimeLeft(isTimedExercise ? dur : 0);
+    elapsedRef.current = 0;
+    setIsTimerRunning(true);
+  }, [currentExercise?.pose_id, currentExercise?.duration_min, isTimedExercise]);
 
   useEffect(() => {
     if (!isTimerRunning) return;

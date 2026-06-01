@@ -204,12 +204,15 @@ export function useFaceLandmarker(): UseFaceLandmarkerReturn {
     setCurrentFrame(null);
   }, []);
 
-  return {
-    isLoading,
-    error,
-    isRunning,
-    start,
-    stop,
-    currentFrame,
-  };
+  return useMemo(
+    () => ({
+      isLoading,
+      error,
+      isRunning,
+      start,
+      stop,
+      currentFrame,
+    }),
+    [isLoading, error, isRunning, start, stop, currentFrame],
+  );
 }

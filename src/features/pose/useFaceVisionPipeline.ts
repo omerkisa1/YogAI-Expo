@@ -28,7 +28,7 @@ export function useFaceVisionPipeline({ active, cameraFacing }: UseFaceVisionPip
   );
   const { detectFaces, stopListeners } = useFaceDetector(faceDetectionOptions);
 
-  useEffect(() => () => stopListeners(), [stopListeners]);
+  useEffect(() => () => stopListeners(), []);
 
   const onFacesDetected = useRunOnJS((faces: Face[], timestamp: number) => {
     if (!activeRef.current) return;

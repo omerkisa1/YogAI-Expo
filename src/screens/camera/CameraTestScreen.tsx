@@ -388,7 +388,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
     } else {
       faceLandmarker.stop();
     }
-  }, [faceLandmarker, isAnalyzing, isFaceExercise]);
+  }, [faceLandmarker.start, faceLandmarker.stop, isAnalyzing, isFaceExercise]);
 
   useEffect(() => {
     if (isAnalyzing && isFaceHandExercise) {
@@ -396,7 +396,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
     } else {
       handLandmarker.stop();
     }
-  }, [handLandmarker, isAnalyzing, isFaceHandExercise]);
+  }, [handLandmarker.start, handLandmarker.stop, isAnalyzing, isFaceHandExercise]);
 
   useEffect(() => {
     if (!isAnalyzing || !isFaceRepMode) return;
@@ -415,18 +415,30 @@ const CameraTestScreen = ({ navigation }: Props) => {
     selectedPose?.rep_target,
   ]);
 
+  const faceFrameTimestamp = faceLandmarker.currentFrame?.timestamp;
+  const faceFrameDetected = faceLandmarker.currentFrame?.faceDetected;
+
   useEffect(() => {
     if (!isAnalyzing || !isFaceRepMode) return;
-    if (!faceLandmarker.currentFrame?.faceDetected) {
+    const frame = faceLandmarker.currentFrame;
+    if (!frame?.faceDetected) {
       setFaceRepResult(null);
       return;
     }
-    if (!faceRepCounterRef.current || !faceLandmarker.currentFrame) return;
-    const result = faceRepCounterRef.current.update(
-      faceLandmarker.currentFrame.blendshapes,
-    );
-    setFaceRepResult(result);
-  }, [isAnalyzing, isFaceRepMode, faceLandmarker.currentFrame]);
+    if (!faceRepCounterRef.current) return;
+    const result = faceRepCounterRef.current.update(frame.blendshapes);
+    setFaceRepResult(prev => {
+      if (
+        prev?.reps === result.reps &&
+        prev?.isComplete === result.isComplete &&
+        prev?.feedbackState === result.feedbackState &&
+        Math.abs((prev?.currentValue ?? 0) - result.currentValue) < 0.01
+      ) {
+        return prev;
+      }
+      return result;
+    });
+  }, [isAnalyzing, isFaceRepMode, faceFrameTimestamp, faceFrameDetected]);
 
   useEffect(() => {
     if (!faceRepResult) return;
