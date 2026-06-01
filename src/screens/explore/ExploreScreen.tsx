@@ -17,6 +17,7 @@ import EmptyState from '@/shared/components/EmptyState';
 import ErrorView from '@/shared/components/ErrorView';
 import SkeletonLoader from '@/shared/components/SkeletonLoader';
 import Touchable from '@/shared/components/Touchable';
+import { posePlanDomain } from '@/lib/poseDomain';
 import type { Pose } from '@/shared/types/pose';
 import type { RootStackParamList } from '@/navigation/types';
 import { TAB_SCENE_BOTTOM_PADDING } from '@/navigation/tabBarMetrics';
@@ -25,6 +26,7 @@ import { radius, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
 type CategoryFilter = 'all' | 'standing' | 'seated' | 'prone' | 'supine' | 'inversion';
+type DomainFilter = 'all' | 'body' | 'face' | 'face_hand';
 type DifficultyFilter = 0 | 1 | 2 | 3 | 4 | 5;
 
 interface CategoryOption { key: CategoryFilter; label: string }
@@ -37,6 +39,13 @@ const categoryOptions: CategoryOption[] = [
   { key: 'prone', label: 'Yüzüstü' },
   { key: 'supine', label: 'Sırtüstü' },
   { key: 'inversion', label: 'Ters' },
+];
+
+const domainOptions: { key: DomainFilter; labelTr: string; labelEn: string }[] = [
+  { key: 'all', labelTr: 'Tümü', labelEn: 'All' },
+  { key: 'body', labelTr: 'Vücut', labelEn: 'Body' },
+  { key: 'face', labelTr: 'Yüz', labelEn: 'Face' },
+  { key: 'face_hand', labelTr: 'Elle Yüz', labelEn: 'Face + Hand' },
 ];
 
 const difficultyOptions: DifficultyOption[] = [
@@ -136,6 +145,7 @@ const ExploreScreen = () => {
 
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<CategoryFilter>('all');
+  const [activeDomain, setActiveDomain] = useState<DomainFilter>('all');
   const [activeDifficulty, setActiveDifficulty] = useState<DifficultyFilter>(0);
 
   const posesQuery = useAllPoses();
@@ -143,6 +153,12 @@ const ExploreScreen = () => {
   const filteredPoses = useMemo(() => {
     const poses = posesQuery.data ?? [];
     return poses.filter(p => {
+      if (activeDomain !== 'all') {
+        const kind = p.analysis_kind ?? (posePlanDomain(p) === 'face' ? 'face' : 'body');
+        if (activeDomain === 'body' && kind !== 'body') return false;
+        if (activeDomain === 'face' && kind !== 'face') return false;
+        if (activeDomain === 'face_hand' && kind !== 'face_hand') return false;
+      }
       if (activeCategory !== 'all' && p.category !== activeCategory) return false;
       if (activeDifficulty !== 0 && p.difficulty !== activeDifficulty) return false;
       if (search.trim()) {
@@ -151,7 +167,7 @@ const ExploreScreen = () => {
       }
       return true;
     });
-  }, [posesQuery.data, activeCategory, activeDifficulty, search]);
+  }, [posesQuery.data, activeCategory, activeDomain, activeDifficulty, search]);
 
   const visiblePoses = useMemo(
     () => filteredPoses.filter(p => !p.pose_id.startsWith('test_')),
@@ -220,6 +236,25 @@ const ExploreScreen = () => {
                 clearButtonMode="while-editing"
               />
             </View>
+
+            <FlatList
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              data={domainOptions}
+              keyExtractor={o => o.key}
+              contentContainerStyle={styles.filterRow}
+              renderItem={({ item }) => (
+                <Touchable
+                  onPress={() => setActiveDomain(item.key)}
+                  borderRadius={radius.full}
+                  style={[styles.chip, activeDomain === item.key && styles.chipActive]}
+                >
+                  <Text style={[styles.chipText, activeDomain === item.key && styles.chipTextActive]}>
+                    {locale === 'tr' ? item.labelTr : item.labelEn}
+                  </Text>
+                </Touchable>
+              )}
+            />
 
             <FlatList
               horizontal

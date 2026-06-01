@@ -1,0 +1,102 @@
+export type AppLocale = 'tr' | 'en';
+
+const en = {
+  waitingForData: 'Start analysis to see results',
+  reps: 'reps',
+  closed: 'Closed',
+  open: 'Open',
+  handProximity: 'Hand proximity',
+  congratulations: 'Congratulations!',
+  repsCompleted: 'reps completed',
+  tryAgain: 'Try Again',
+  nextPoseIn: 'Next pose in',
+  jawOpenLevel: 'Jaw opening level',
+  browRaiseLevel: 'Brow raise level',
+  smileLevel: 'Smile level',
+  lipPuckerLevel: 'Lip pucker level',
+  fishLipsLevel: 'Fish lips level',
+  eyeSqueezeLevel: 'Eye squeeze level',
+  mouthOLevel: 'Mouth O level',
+  jawSlideLevel: 'Jaw slide level',
+  browFurrowLevel: 'Brow furrow level',
+  cheekPuffLevel: 'Cheek puff level',
+  eyeWideLevel: 'Eye opening level',
+  eyeBlinkLevel: 'Eye blink level',
+  lipPressLevel: 'Lip press level',
+  noseSneerLevel: 'Nose sneer level',
+  mouthStretchLevel: 'Mouth stretch level',
+  chinUpLevel: 'Chin up level',
+  bodyYoga: 'Body Yoga',
+  faceYoga: 'Face Yoga',
+  faceHandYoga: 'Face Yoga with Hands',
+  bodyYogaDesc: 'Full-body poses with pose analysis',
+  faceYogaDesc: 'Facial exercises with rep counting',
+  faceHandYogaDesc: 'Face exercises guided by hand proximity',
+  chooseDomain: 'Choose plan type',
+  facePlanCreated: 'Face yoga plan created!',
+  planCreated: 'Plan created!',
+  cannotMixCategories: 'Face yoga and body yoga poses cannot be mixed in one plan.',
+  allDomains: 'All',
+  generateFailed: 'Could not create plan',
+};
+
+const tr: typeof en = {
+  waitingForData: 'Sonuçları görmek için analizi başlatın',
+  reps: 'tekrar',
+  closed: 'Kapalı',
+  open: 'Açık',
+  handProximity: 'El yakınlığı',
+  congratulations: 'Tebrikler!',
+  repsCompleted: 'tekrar tamamlandı',
+  tryAgain: 'Tekrar Dene',
+  nextPoseIn: 'Sonraki hareket',
+  jawOpenLevel: 'Ağız açıklığı seviyesi',
+  browRaiseLevel: 'Kaş kaldırma seviyesi',
+  smileLevel: 'Gülümseme seviyesi',
+  lipPuckerLevel: 'Dudak büzme seviyesi',
+  fishLipsLevel: 'Balık dudak seviyesi',
+  eyeSqueezeLevel: 'Göz sıkma seviyesi',
+  mouthOLevel: 'O şekli seviyesi',
+  jawSlideLevel: 'Çene kaydırma seviyesi',
+  browFurrowLevel: 'Kaş çatma seviyesi',
+  cheekPuffLevel: 'Yanak şişirme seviyesi',
+  eyeWideLevel: 'Göz açıklığı seviyesi',
+  eyeBlinkLevel: 'Göz kırpma seviyesi',
+  lipPressLevel: 'Dudak bastırma seviyesi',
+  noseSneerLevel: 'Burun kıvırma seviyesi',
+  mouthStretchLevel: 'Ağız germe seviyesi',
+  chinUpLevel: 'Çene kaldırma seviyesi',
+  bodyYoga: 'Vücut Yogası',
+  faceYoga: 'Yüz Yogası',
+  faceHandYoga: 'Elle Yüz Yogası',
+  bodyYogaDesc: 'Poz analizi ile tam vücut',
+  faceYogaDesc: 'Tekrar sayımı ile yüz egzersizleri',
+  faceHandYogaDesc: 'El yakınlığı ile yüz egzersizleri',
+  chooseDomain: 'Plan türünü seçin',
+  facePlanCreated: 'Yüz yoga planı oluşturuldu!',
+  planCreated: 'Plan oluşturuldu!',
+  cannotMixCategories: 'Yüz yogası ile vücut yogası aynı planda birleştirilemez.',
+  allDomains: 'Tümü',
+  generateFailed: 'Plan oluşturulamadı',
+};
+
+export type TrainingStrings = typeof en;
+
+export function getTrainingStrings(locale: AppLocale): TrainingStrings {
+  return locale === 'tr' ? tr : en;
+}
+
+export function tKey(strings: TrainingStrings, key: string): string {
+  const v = strings[key as keyof TrainingStrings];
+  return typeof v === 'string' ? v : key;
+}
+
+export const faceFocusAreaKeys = [
+  { value: 'forehead', labelEn: 'Forehead', labelTr: 'Alın' },
+  { value: 'eyes', labelEn: 'Eyes', labelTr: 'Gözler' },
+  { value: 'cheeks', labelEn: 'Cheeks', labelTr: 'Yanaklar' },
+  { value: 'mouth', labelEn: 'Mouth', labelTr: 'Ağız' },
+  { value: 'jawline', labelEn: 'Jawline', labelTr: 'Çene hattı' },
+  { value: 'neck', labelEn: 'Neck', labelTr: 'Boyun' },
+  { value: 'full_face', labelEn: 'Full face', labelTr: 'Tüm yüz' },
+] as const;

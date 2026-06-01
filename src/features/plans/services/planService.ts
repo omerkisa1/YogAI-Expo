@@ -1,5 +1,6 @@
 import api from '@/shared/api/axiosInstance';
-import type { CreatePlanRequest, CustomPlanRequest, CustomPlanResponse, Exercise, FocusArea, Level, Plan, PlanMetaUpdate } from '@/shared/types/plan';
+import { normalizePlanType } from '@/lib/poseDomain';
+import type { CreatePlanRequest, CustomPlanRequest, CustomPlanResponse, Exercise, FocusArea, Level, Plan, PlanMetaUpdate, PlanType } from '@/shared/types/plan';
 
 type ApiWrapper<T> = { status: number; message: string; data: T };
 type RawPlan = Record<string, unknown>;
@@ -39,6 +40,22 @@ const mapPlan = (raw: RawPlan): Plan => {
     created_at: raw.created_at as string | undefined,
     exercises: ((detail.exercises ?? []) as Exercise[]),
     source: (raw.source as 'ai' | 'custom' | undefined),
+    plan_type: (() => {
+      const exercisesList = (detail.exercises ?? []) as Exercise[];
+      const inferred =
+        exercisesList.some(
+          ex => ex.analysis_kind === 'face' || ex.analysis_kind === 'face_hand',
+        )
+          ? 'face'
+          : 'body';
+      return normalizePlanType(
+        (raw.plan_type as string | undefined) ??
+          (detail.plan_type as string | undefined) ??
+          inferred,
+      ) as PlanType;
+    })(),
+    plan_en: raw.plan_en,
+    plan_tr: raw.plan_tr,
   };
 };
 

@@ -6,11 +6,13 @@ import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
 import { cardStyle } from '@/theme/shadows';
 import { typography } from '@/theme/typography';
+import { domainBadgeLabel } from '@/lib/poseDomain';
 import type { Plan } from '@/shared/types/plan';
 import ProgressBar from './ProgressBar';
 
 export interface PlanCardProps {
   plan: Plan;
+  locale?: 'tr' | 'en';
   onPress: (planId: string) => void;
   onToggleFavorite?: (plan: Plan) => void;
   onTogglePin?: (plan: Plan) => void;
@@ -33,8 +35,14 @@ const focusAreaLabelMap: Record<string, string> = {
 };
 
 const PlanCard = ({
-  plan, onPress, onToggleFavorite, onTogglePin, onLongPress,
-  actionsDisabled = false, completedSessionsCount = 0,
+  plan,
+  locale = 'tr',
+  onPress,
+  onToggleFavorite,
+  onTogglePin,
+  onLongPress,
+  actionsDisabled = false,
+  completedSessionsCount = 0,
 }: PlanCardProps) => {
   const actionTriggeredRef = useRef(false);
   const difficulty = difficultyMeta[plan.difficulty] ?? { label: plan.difficulty, color: colors.textMuted };
@@ -112,6 +120,13 @@ const PlanCard = ({
       </View>
 
       <View style={styles.badges}>
+        {plan.plan_type === 'face' ? (
+          <View style={[styles.chip, styles.chipFace]}>
+            <Text style={[styles.chipText, styles.chipTextFace]}>
+              {domainBadgeLabel('face', locale)}
+            </Text>
+          </View>
+        ) : null}
         <View style={styles.chip}>
           <Text style={styles.chipText}>{difficulty.label}</Text>
         </View>
@@ -181,8 +196,10 @@ const styles = StyleSheet.create({
   badges: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.full, backgroundColor: colors.primarySoft },
   chipCustom: { backgroundColor: colors.accentSoft },
+  chipFace: { backgroundColor: '#f3e8ff' },
   chipText: { ...typography.captionMedium, color: colors.primary },
   chipTextCustom: { color: colors.accent },
+  chipTextFace: { color: '#7c3aed' },
   metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: spacing.sm, rowGap: spacing.xs, marginTop: spacing.xs },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   metaText: { ...typography.caption, color: colors.textSecondary },

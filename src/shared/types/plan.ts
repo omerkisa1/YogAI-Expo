@@ -23,6 +23,17 @@ export type Injury =
 
 export type AppLanguage = 'tr' | 'en';
 
+export type PlanType = 'body' | 'face';
+
+export type FaceFocusArea =
+  | 'forehead'
+  | 'eyes'
+  | 'cheeks'
+  | 'mouth'
+  | 'jawline'
+  | 'neck'
+  | 'full_face';
+
 export interface Exercise {
   pose_id: string;
   name_en: string;
@@ -44,7 +55,10 @@ export interface Plan {
   id: string;
   title_en: string;
   title_tr: string;
-  focus_area: FocusArea;
+  plan_type?: PlanType;
+  plan_en?: unknown;
+  plan_tr?: unknown;
+  focus_area: FocusArea | FaceFocusArea | string;
   difficulty: Level;
   total_duration_min: number;
   description_en: string;
@@ -79,9 +93,10 @@ export interface CustomPlanResponse {
 export interface CreatePlanRequest {
   level: Level;
   duration: number;
-  focus_area: FocusArea;
+  focus_area: FocusArea | FaceFocusArea | string;
   injuries: Injury[];
   language: AppLanguage;
+  plan_type?: PlanType;
 }
 
 export interface PlanMetaUpdate {

@@ -1,4 +1,6 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+
+import { HAND_LANDMARKER_SUPPORTED } from './mediapipeHands';
 
 export interface HandData {
   landmarks: { x: number; y: number; z: number }[];
@@ -19,18 +21,45 @@ export interface UseHandLandmarkerReturn {
   currentFrame: HandFrame | null;
 }
 
-export const HAND_LANDMARKER_SUPPORTED = false;
+export { HAND_LANDMARKER_SUPPORTED };
+
+let activeHandCallback: ((frame: HandFrame) => void) | null = null;
+
+export const handLandmarkerDetectionCallback = (frame: HandFrame) => {
+  activeHandCallback?.(frame);
+};
 
 export function useHandLandmarker(): UseHandLandmarkerReturn {
   const [isRunning, setIsRunning] = useState(false);
-  const [currentFrame] = useState<HandFrame | null>(null);
+  const [currentFrame, setCurrentFrame] = useState<HandFrame | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const isLoading = useMemo(() => false, []);
+  const isLoading = useMemo(() => isRunning && currentFrame == null, [isRunning, currentFrame]);
+
+  const handleHandFrame = useCallback(
+    (frame: HandFrame) => {
+      if (!isRunning) return;
+      setCurrentFrame(frame);
+    },
+    [isRunning],
+  );
+
+  useEffect(() => {
+    if (!isRunning) {
+      activeHandCallback = null;
+      return;
+    }
+    activeHandCallback = handleHandFrame;
+    return () => {
+      if (activeHandCallback === handleHandFrame) {
+        activeHandCallback = null;
+      }
+    };
+  }, [handleHandFrame, isRunning]);
 
   const start = useCallback(() => {
     if (!HAND_LANDMARKER_SUPPORTED) {
-      setError('Hand detection is not available');
+      setError('Hand detection is not available on this device');
       setIsRunning(false);
       return;
     }
@@ -40,6 +69,7 @@ export function useHandLandmarker(): UseHandLandmarkerReturn {
 
   const stop = useCallback(() => {
     setIsRunning(false);
+    setCurrentFrame(null);
   }, []);
 
   return useMemo(

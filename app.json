@@ -35,6 +35,12 @@
           "enableMicrophonePermission": false,
           "enableFrameProcessors": true
         }
+      ],
+      [
+        "./node_modules/expo-vision-camera-v4-mediapipe/plugin",
+        {
+          "numHands": 2
+        }
       ]
     ]
   }

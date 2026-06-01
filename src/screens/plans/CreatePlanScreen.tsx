@@ -11,7 +11,8 @@ import { useCreatePlan } from '@/features/plans/hooks/useCreatePlan';
 import Button from '@/shared/components/Button';
 import ErrorView from '@/shared/components/ErrorView';
 import Touchable from '@/shared/components/Touchable';
-import type { AppLanguage, CreatePlanRequest, FocusArea, Injury, Level } from '@/shared/types/plan';
+import { faceFocusAreaKeys } from '@/lib/i18n';
+import type { AppLanguage, CreatePlanRequest, FaceFocusArea, FocusArea, Injury, Level, PlanType } from '@/shared/types/plan';
 import type { RootStackParamList } from '@/navigation/types';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
@@ -26,7 +27,8 @@ const levelOptions = [
   { key: 'advanced' as Level, label: 'İleri', icon: 'fire', gradient: [colors.gradientAdvanced[0], colors.gradientAdvanced[1]] as [string, string] },
 ];
 
-const durationOptions = [10, 15, 20, 25, 30, 45, 60] as const;
+const bodyDurationOptions = [10, 15, 20, 25, 30, 45, 60] as const;
+const faceDurationOptions = [5, 10, 15, 20] as const;
 
 const focusOptions: { key: FocusArea; label: string }[] = [
   { key: 'full_body', label: 'Tam Vücut' }, { key: 'legs', label: 'Bacaklar' }, { key: 'back', label: 'Sırt' },
@@ -48,9 +50,10 @@ const CreatePlanScreen = ({ navigation, route }: Props) => {
   const [inlineValidationError, setInlineValidationError] = useState<string | null>(null);
   const [inlineValidationMeta, setInlineValidationMeta] = useState<string | null>(null);
   const [showServerError, setShowServerError] = useState(false);
+  const [planType, setPlanType] = useState<PlanType>('body');
 
   const { control, handleSubmit, watch, setValue } = useForm<CreatePlanRequest>({
-    defaultValues: { level: route.params?.presetLevel ?? 'beginner', duration: route.params?.presetDuration ?? 20, focus_area: 'full_body', injuries: [], language: 'tr' },
+    defaultValues: { level: route.params?.presetLevel ?? 'beginner', duration: route.params?.presetDuration ?? 20, focus_area: 'full_body', injuries: [], language: 'tr', plan_type: 'body' },
   });
 
   const selectedLevel = watch('level');
@@ -72,12 +75,28 @@ const CreatePlanScreen = ({ navigation, route }: Props) => {
   const pulseAnimatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulseAnim.value }] }));
   const inlineSuggestion = useMemo(() => 'Öneri: Süreyi kısaltmayı veya odak alanını genişletmeyi deneyin.', []);
 
+  const durationOptions = planType === 'face' ? faceDurationOptions : bodyDurationOptions;
+  const focusOptionsForPlan =
+    planType === 'face'
+      ? faceFocusAreaKeys.map(f => ({
+          key: f.value as FaceFocusArea,
+          label: selectedLanguage === 'tr' ? f.labelTr : f.labelEn,
+        }))
+      : focusOptions;
+
+  const onSelectPlanType = (type: PlanType) => {
+    setPlanType(type);
+    setValue('plan_type', type);
+    setValue('focus_area', type === 'face' ? 'full_face' : 'full_body');
+    setValue('duration', type === 'face' ? 10 : 20);
+  };
+
   const onSubmit = handleSubmit(async values => {
     setInlineValidationError(null);
     setInlineValidationMeta(null);
     setShowServerError(false);
     try {
-      const result = await createPlanMutation.mutateAsync(values);
+      const result = await createPlanMutation.mutateAsync({ ...values, plan_type: planType });
       Toast.show({ type: 'success', position: 'top', text1: 'Plan oluşturuldu', text2: 'Plan detay ekranına yönlendiriliyorsunuz.' });
       if (result.id) { navigation.replace('PlanDetail', { planId: result.id }); return; }
       navigation.goBack();
@@ -125,6 +144,26 @@ const CreatePlanScreen = ({ navigation, route }: Props) => {
       <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
       <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Plan Türü</Text>
+          <View style={styles.languageRow}>
+            <Button
+              title="Vücut Yogası"
+              onPress={() => onSelectPlanType('body')}
+              variant={planType === 'body' ? 'primary' : 'outline'}
+              size="md"
+              fullWidth
+            />
+            <Button
+              title="Yüz Yogası"
+              onPress={() => onSelectPlanType('face')}
+              variant={planType === 'face' ? 'primary' : 'outline'}
+              size="md"
+              fullWidth
+            />
+          </View>
+        </View>
+
+        <View style={styles.section}>
           <Text style={styles.sectionTitle}>Seviye Seçimi</Text>
           <View style={styles.levelGrid}>
             {levelOptions.map(level => {
@@ -160,7 +199,7 @@ const CreatePlanScreen = ({ navigation, route }: Props) => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Odak Alanı</Text>
           <View style={styles.chipWrap}>
-            {focusOptions.map(focus => (
+            {focusOptionsForPlan.map(focus => (
               <Touchable key={focus.key} onPress={() => setValue('focus_area', focus.key, { shouldValidate: true })} style={[styles.focusChip, selectedFocus === focus.key ? styles.focusChipSelected : styles.focusChipUnselected]} borderRadius={radius.full} accessibilityRole="button" accessibilityLabel={`${focus.label} odak alanı seç`}>
                 <Text style={[styles.focusChipText, selectedFocus === focus.key ? styles.focusChipTextSelected : styles.focusChipTextUnselected]}>{focus.label}</Text>
               </Touchable>

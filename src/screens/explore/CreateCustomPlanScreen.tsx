@@ -19,6 +19,7 @@ import { useAllPoses } from '@/features/pose/hooks/useAllPoses';
 import { useProfile } from '@/features/profile/hooks/useProfile';
 import Button from '@/shared/components/Button';
 import Touchable from '@/shared/components/Touchable';
+import { domainsCompatible, mixDomainErrorMessage, posePlanDomain } from '@/lib/poseDomain';
 import type { Pose } from '@/shared/types/pose';
 import type { RootStackParamList } from '@/navigation/types';
 import { colors } from '@/theme/colors';
@@ -110,9 +111,17 @@ const CreateCustomPlanScreen = ({ route, navigation }: Props) => {
       const next = new Map(prev);
       if (next.has(pose.pose_id)) {
         next.delete(pose.pose_id);
-      } else {
-        next.set(pose.pose_id, { pose, duration_min: 3 });
+        return next;
       }
+      const incoming = posePlanDomain(pose);
+      if (prev.size > 0) {
+        const first = prev.values().next().value?.pose;
+        if (first && !domainsCompatible(posePlanDomain(first), incoming)) {
+          Toast.show({ type: 'error', text1: mixDomainErrorMessage() });
+          return prev;
+        }
+      }
+      next.set(pose.pose_id, { pose, duration_min: 3 });
       return next;
     });
   }, []);

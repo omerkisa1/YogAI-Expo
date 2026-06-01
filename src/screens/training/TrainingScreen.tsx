@@ -25,9 +25,8 @@ import { usePlan } from '@/features/plans/hooks/usePlan';
 import { useProfile } from '@/features/profile/hooks/useProfile';
 import { usePoseDetailAndRules } from '@/features/pose/usePoseDetailAndRules';
 import { usePoseVisionPipeline } from '@/features/pose/usePoseVisionPipeline';
-import { useFaceLandmarker } from '@/features/pose/useFaceLandmarker';
-import { useFaceVisionPipeline } from '@/features/pose/useFaceVisionPipeline';
-import { HAND_LANDMARKER_SUPPORTED } from '@/features/pose/useHandLandmarker';
+import { useExerciseAnalysis, resolveExerciseAnalysisKind } from '@/features/pose/useExerciseAnalysis';
+import { useCombinedFaceHandVisionPipeline } from '@/features/pose/useCombinedFaceHandVisionPipeline';
 import { useCompleteTrainingSession, useStartTrainingSession, useSubmitPose } from '@/features/training/hooks/useTraining';
 import Toast from 'react-native-toast-message';
 import AppModal from '@/shared/components/AppModal';
@@ -42,13 +41,14 @@ import LoadingView from '@/shared/components/LoadingView';
 import type { Exercise } from '@/shared/types/plan';
 import type { RootStackParamList } from '@/navigation/types';
 import type { AnalyzeResult, LandmarkPoint } from '@/lib/poseAnalyzer';
-import { FACE_EXERCISE_CONFIGS, createFaceRepCounter, type FaceRepResult } from '@/lib/faceRepCounter';
+import type { AppLocale } from '@/lib/i18n';
 import { getPreviewContentExtent } from '@/lib/poseLandmarks';
 import { shouldWarnFullBodyLandmarks } from '@/lib/poseVisibilityGuards';
 import { colors } from '@/theme/colors';
 import { radius, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 import { TrainingSessionHud } from '@/screens/training/TrainingSessionHud';
+import { FaceTrainingOverlays } from '@/shared/components/FaceTrainingOverlays';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TrainingSession'>;
 
@@ -112,7 +112,7 @@ const TrainingScreen = ({ route, navigation }: Props) => {
 
   const planQuery = usePlan(planId);
   const profileQuery = useProfile();
-  const locale = profileQuery.data?.preferred_language ?? 'tr';
+  const locale = (profileQuery.data?.preferred_language ?? 'tr') as AppLocale;
   const submitPoseMutation = useSubmitPose();
   const completeSessionMutation = useCompleteTrainingSession();
   const startSessionMutation = useStartTrainingSession();
@@ -129,7 +129,9 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResult | null>(null);
   const [fps, setFps] = useState(0);
   const [overlaySize, setOverlaySize] = useState({ width: 0, height: 0 });
-  const [faceRepResult, setFaceRepResult] = useState<FaceRepResult | null>(null);
+  const [completionCountdown, setCompletionCountdown] = useState<number | null>(null);
+  const [repCompletionLatched, setRepCompletionLatched] = useState(false);
+  const [latchedTargetReps, setLatchedTargetReps] = useState(0);
   const [frameInfo, setFrameInfo] = useState<{
     w: number;
     h: number;
@@ -139,8 +141,6 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   } | null>(null);
   const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('front');
   const [previewScale, setPreviewScale] = useState(1);
-  const faceLandmarker = useFaceLandmarker();
-
   const devResizeMode = 'cover' as const;
   const devResizeModeRef = useRef<'cover' | 'contain'>('cover');
 
@@ -150,30 +150,24 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   const overlayLayoutRef = useRef({ w: 0, h: 0 });
   const selectedPoseIdRef = useRef<string | null>(null);
   const formatVideoRef = useRef<{ vw: number; vh: number } | null>(null);
-  const faceRepCounterRef = useRef<ReturnType<typeof createFaceRepCounter> | null>(null);
-  const lastFaceRepRef = useRef(0);
-
   const exercises = planQuery.data?.exercises ?? [];
   const currentExercise = exercises[currentIndex];
   const nextExercise = exercises[currentIndex + 1];
-  const analysisKind = useMemo(() => {
-    if (currentExercise?.analysis_kind === 'face_hand') return 'face_hand';
-    if (currentExercise?.analysis_kind === 'face') return 'face';
-    if (currentExercise?.pose_id && FACE_EXERCISE_CONFIGS[currentExercise.pose_id]) return 'face';
-    return 'body';
-  }, [currentExercise?.analysis_kind, currentExercise?.pose_id]);
-  const faceExerciseConfig = useMemo(
-    () => (currentExercise?.pose_id ? FACE_EXERCISE_CONFIGS[currentExercise.pose_id] : null),
-    [currentExercise?.pose_id],
+  const analysisKind = useMemo(
+    () =>
+      resolveExerciseAnalysisKind(
+        currentExercise?.pose_id ?? '',
+        currentExercise?.analysis_kind,
+      ),
+    [currentExercise?.analysis_kind, currentExercise?.pose_id],
   );
   const isFaceExercise = analysisKind === 'face';
   const isFaceHandExercise = analysisKind === 'face_hand';
+  const isFaceMode = isFaceExercise || isFaceHandExercise;
   const isBodyExercise = analysisKind === 'body';
-  const isFaceHandSupported = HAND_LANDMARKER_SUPPORTED;
-  const isFaceRepMode = isFaceExercise && Boolean(faceExerciseConfig);
-  const isRepExercise = isFaceRepMode || (isFaceHandExercise && isFaceHandSupported);
-  const isTimedExercise = isBodyExercise || !isRepExercise;
-  const repTarget = currentExercise?.rep_target ?? faceExerciseConfig?.repTarget ?? 0;
+  const isRepExercise = isFaceMode;
+  const isTimedExercise = isBodyExercise;
+  const repTarget = currentExercise?.rep_target ?? 0;
   const planTitle = locale === 'tr'
     ? (planQuery.data?.title_tr || planQuery.data?.title_en || 'Antrenman')
     : (planQuery.data?.title_en || planQuery.data?.title_tr || 'Workout');
@@ -197,6 +191,16 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   }, [poseIdForRules]);
 
   const device = useCameraDevice(cameraFacing);
+  const cameraReady = Boolean(device && overlaySize.width > 0 && screenState === 'posing');
+
+  const exerciseAnalysis = useExerciseAnalysis({
+    poseId: currentExercise?.pose_id ?? '',
+    analysisKind,
+    repTarget: repTarget || undefined,
+    active: screenState === 'posing' && isFaceMode,
+    cameraReady,
+  });
+
   const screen = Dimensions.get('window');
   const format = useCameraFormat(device, [
     { fps: 30 },
@@ -216,8 +220,9 @@ const TrainingScreen = ({ route, navigation }: Props) => {
     accuracySamplesRef.current.push(pct);
   }, []);
 
-  const { frameProcessor: faceFrameProcessor } = useFaceVisionPipeline({
-    active: screenState === 'posing' && isFaceExercise,
+  const { frameProcessor: faceHandFrameProcessor } = useCombinedFaceHandVisionPipeline({
+    active: screenState === 'posing' && isFaceMode,
+    enableHands: isFaceHandExercise,
     cameraFacing,
   });
 
@@ -246,60 +251,11 @@ const TrainingScreen = ({ route, navigation }: Props) => {
     setAnalyzeResult(null);
     setFps(0);
     lastResultRef.current = null;
-    faceRepCounterRef.current = null;
-    lastFaceRepRef.current = 0;
-    setFaceRepResult(null);
-  }, [currentIndex, currentExercise?.pose_id, resetSmoothers]);
-
-  useEffect(() => {
-    if (screenState === 'posing' && isFaceExercise) {
-      faceLandmarker.start();
-    } else {
-      faceLandmarker.stop();
-    }
-  }, [faceLandmarker.start, faceLandmarker.stop, isFaceExercise, screenState]);
-
-  useEffect(() => {
-    if (screenState !== 'posing' || !isFaceRepMode) return;
-    if (!faceLandmarker.currentFrame?.faceDetected) return;
-    if (!faceRepCounterRef.current && currentExercise?.pose_id) {
-      faceRepCounterRef.current = createFaceRepCounter(
-        currentExercise.pose_id,
-        repTarget || undefined,
-      );
-    }
-  }, [
-    currentExercise?.pose_id,
-    faceLandmarker.currentFrame?.faceDetected,
-    isFaceRepMode,
-    repTarget,
-    screenState,
-  ]);
-
-  const faceFrameTimestamp = faceLandmarker.currentFrame?.timestamp;
-  const faceFrameDetected = faceLandmarker.currentFrame?.faceDetected;
-
-  useEffect(() => {
-    if (screenState !== 'posing' || !isFaceRepMode) return;
-    const frame = faceLandmarker.currentFrame;
-    if (!frame?.faceDetected) {
-      setFaceRepResult(null);
-      return;
-    }
-    if (!faceRepCounterRef.current) return;
-    const result = faceRepCounterRef.current.update(frame.blendshapes);
-    setFaceRepResult(prev => {
-      if (
-        prev?.reps === result.reps &&
-        prev?.isComplete === result.isComplete &&
-        prev?.feedbackState === result.feedbackState &&
-        Math.abs((prev?.currentValue ?? 0) - result.currentValue) < 0.01
-      ) {
-        return prev;
-      }
-      return result;
-    });
-  }, [faceFrameTimestamp, faceFrameDetected, isFaceRepMode, screenState]);
+    exerciseAnalysis.resetCounters();
+    setCompletionCountdown(null);
+    setRepCompletionLatched(false);
+    setLatchedTargetReps(0);
+  }, [currentIndex, currentExercise?.pose_id, exerciseAnalysis.resetCounters, resetSmoothers]);
 
   useEffect(() => {
     if (!currentExercise) return;
@@ -420,10 +376,33 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   );
 
   useEffect(() => {
-    if (!isFaceRepMode || !faceRepResult?.isComplete) return;
-    if (isSubmitting || screenState !== 'posing') return;
-    void handlePoseComplete(false);
-  }, [faceRepResult?.isComplete, handlePoseComplete, isFaceRepMode, isSubmitting, screenState]);
+    if (!isRepExercise || !exerciseAnalysis.isRepComplete) return;
+    if (isSubmitting || screenState !== 'posing' || completionCountdown !== null) return;
+    const target = exerciseAnalysis.repResult?.target ?? repTarget;
+    setLatchedTargetReps(target);
+    setRepCompletionLatched(true);
+    setCompletionCountdown(3);
+  }, [
+    completionCountdown,
+    exerciseAnalysis.isRepComplete,
+    exerciseAnalysis.repResult?.target,
+    handlePoseComplete,
+    isRepExercise,
+    isSubmitting,
+    repTarget,
+    screenState,
+  ]);
+
+  useEffect(() => {
+    if (completionCountdown === null) return;
+    if (completionCountdown <= 0) {
+      setCompletionCountdown(null);
+      void handlePoseComplete(false);
+      return;
+    }
+    const id = setTimeout(() => setCompletionCountdown(c => (c != null && c > 0 ? c - 1 : null)), 1000);
+    return () => clearTimeout(id);
+  }, [completionCountdown, handlePoseComplete]);
 
   const handleQuitConfirm = () => {
     stopTimer();
@@ -625,20 +604,21 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   }
 
   const totalDuration = getPoseDuration(currentExercise.duration_min);
-  const repProgressPercent = faceRepResult ? faceRepResult.progress * 100 : 0;
-  const repTargetValue = faceRepResult?.target ?? (repTarget || 0);
+  const repResult = exerciseAnalysis.repResult;
+  const repProgressPercent = repResult ? repResult.progress * 100 : 0;
+  const repTargetValue = repResult?.target ?? (repTarget || 0);
   const progressPercent = isRepExercise
     ? repProgressPercent
     : totalDuration > 0
       ? ((totalDuration - timeLeft) / totalDuration) * 100
       : 0;
   const timerDisplay = isRepExercise
-    ? `${faceRepResult?.reps ?? 0} / ${repTargetValue}`
+    ? `${repResult?.reps ?? 0} / ${repTargetValue}`
     : formatTime(timeLeft);
   const categoryColor = categoryColorMap[currentExercise.category] ?? colors.textMuted;
   const categoryLabel = categoryLabelMap[currentExercise.category] ?? currentExercise.category;
 
-  const requiresCamera = isBodyExercise ? currentExercise.is_analyzable : true;
+  const requiresCamera = isFaceMode || (isBodyExercise && currentExercise.is_analyzable);
   const analyzableMissingDevice = requiresCamera && device == null;
 
   if (analyzableMissingDevice) {
@@ -689,8 +669,8 @@ const TrainingScreen = ({ route, navigation }: Props) => {
                     audio={false}
                     enableBufferCompression={false}
                     frameProcessor={
-                      isFaceExercise
-                        ? faceFrameProcessor
+                      isFaceMode
+                        ? faceHandFrameProcessor
                         : isBodyExercise
                           ? frameProcessor
                           : undefined
@@ -759,6 +739,29 @@ const TrainingScreen = ({ route, navigation }: Props) => {
         onSkipPose={() => void handlePoseComplete(true)}
         submitting={isSubmitting}
       />
+
+      {isFaceMode && (
+        <FaceTrainingOverlays
+          locale={locale}
+          analysisKind={analysisKind}
+          faceDetected={exerciseAnalysis.faceDetected}
+          faceRepResult={exerciseAnalysis.faceRepResult}
+          faceHandRepResult={exerciseAnalysis.faceHandRepResult}
+          repPulse={exerciseAnalysis.repPulse}
+          handRepPulse={exerciseAnalysis.handRepPulse}
+          faceEnterThreshold={exerciseAnalysis.faceEnterThreshold}
+          proximityThreshold={exerciseAnalysis.proximityThreshold}
+          pipelineLoading={exerciseAnalysis.pipelineLoading}
+          completionCountdown={completionCountdown}
+          repCompletionLatched={repCompletionLatched}
+          latchedTargetReps={latchedTargetReps}
+          onRetry={() => {
+            exerciseAnalysis.resetCounters();
+            setRepCompletionLatched(false);
+            setCompletionCountdown(null);
+          }}
+        />
+      )}
 
       <AppModal
         visible={showQuitModal}
