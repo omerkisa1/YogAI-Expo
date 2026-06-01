@@ -28,6 +28,20 @@ const mapBrowRaise = (raw: number) =>
 
 const mapBrowDown = (raw: number) => clamp01((0.14 - raw) / 0.06);
 
+const MOUTH_WIDTH_NEUTRAL = 0.31;
+const MOUTH_WIDTH_WIDE = 0.37;
+const SMILE_PROB_NEUTRAL = 0.1;
+const SMILE_PROB_WIDE = 0.4;
+
+const rampUp = (v: number, neutral: number, active: number) =>
+  clamp01((v - neutral) / Math.max(active - neutral, 1e-6));
+
+const rampDown = (v: number, neutral: number, active: number) =>
+  clamp01((neutral - v) / Math.max(neutral - active, 1e-6));
+
+const bandPass = (v: number, center: number, halfWidth: number) =>
+  clamp01(1 - Math.abs(v - center) / Math.max(halfWidth, 1e-6));
+
 export function buildFaceLandmarksFromMlKit(face: Face): FaceLandmark[] {
   const lm = emptyLandmarks();
   const bounds = face.bounds;
@@ -95,16 +109,24 @@ export function buildBlendshapesFromMlKit(face: Face): Map<string, number> {
   const mouthWidthNorm =
     mouthLeft && mouthRight
       ? clamp01(Math.hypot(mouthRight.x - mouthLeft.x, mouthRight.y - mouthLeft.y) / boundsW)
-      : 0.35;
+      : MOUTH_WIDTH_NEUTRAL;
 
   const upperLip = contours?.UPPER_LIP_BOTTOM?.length
     ? avg(contours.UPPER_LIP_BOTTOM)
     : null;
   const lowerLip = contours?.LOWER_LIP_TOP?.length ? avg(contours.LOWER_LIP_TOP) : null;
+  const upperLipTop = contours?.UPPER_LIP_TOP?.length ? avg(contours.UPPER_LIP_TOP) : null;
+  const lowerLipBottom = contours?.LOWER_LIP_BOTTOM?.length
+    ? avg(contours.LOWER_LIP_BOTTOM)
+    : null;
   const lipGapNorm =
     upperLip && lowerLip
       ? clamp01(Math.hypot(upperLip.x - lowerLip.x, upperLip.y - lowerLip.y) / boundsH)
       : 0;
+  const lipStackHeight =
+    upperLipTop && lowerLipBottom
+      ? clamp01(Math.abs(lowerLipBottom.y - upperLipTop.y) / boundsH)
+      : lipGapNorm;
 
   const jawOpen = clamp01(lipGapNorm / 0.18);
 
@@ -150,20 +172,30 @@ export function buildBlendshapesFromMlKit(face: Face): Map<string, number> {
   const jawRight = clamp01(Math.max(0, jawShiftX) / 0.12);
   const jawLeft = clamp01(Math.max(0, -jawShiftX) / 0.12);
 
-  const lipPuckerSignal =
-    upperLip && lowerLip && mouthLeft && mouthRight
-      ? clamp01((1 - mouthWidthNorm) * clamp01(lipGapNorm / 0.06))
-      : clamp01((1 - mouthWidthNorm) * 0.5);
+  const smileWidth = rampUp(mouthWidthNorm, MOUTH_WIDTH_NEUTRAL, MOUTH_WIDTH_WIDE);
+  const smileProb = rampUp(smilingProb, SMILE_PROB_NEUTRAL, SMILE_PROB_WIDE);
+  const mouthSmile = clamp01(
+    Math.max(smileProb * 0.62, smileWidth * 0.5) + smileProb * smileWidth * 0.55,
+  );
 
-  const mouthPucker = lipPuckerSignal;
-  const mouthFunnel = clamp01(jawOpen * clamp01(1 - mouthWidthNorm * 1.2));
-  const mouthShrugLower = clamp01(lipGapNorm / 0.12);
+  const lipAspect = lipStackHeight / Math.max(mouthWidthNorm, 0.09);
+  const puckerProtrusion = rampUp(lipAspect, 0.38, 0.62);
+  const puckerNarrow = rampDown(mouthWidthNorm, 0.335, 0.255);
+  const notSmilingForPucker = rampDown(smilingProb, 0.28, 0.1);
+  const notMouthOpen = rampDown(lipGapNorm, 0.095, 0.058);
+  const mouthPucker = clamp01(
+    puckerProtrusion * puckerNarrow * notSmilingForPucker * (0.25 + notMouthOpen * 0.75),
+  );
 
-  const smileWidthFactor = clamp01((mouthWidthNorm - 0.3) / 0.22);
-  const mouthSmile =
-    smilingProb > 0.25
-      ? clamp01(smileWidthFactor * clamp01((smilingProb - 0.2) / 0.55))
-      : clamp01(smileWidthFactor * 0.15);
+  const fishGapBand = bandPass(lipGapNorm, 0.058, 0.022);
+  const fishProtrusion = rampUp(lipAspect, 0.4, 0.58);
+  const fishNarrow = rampDown(mouthWidthNorm, 0.335, 0.285);
+  const notWideOpen = rampDown(lipGapNorm, 0.1, 0.072);
+  const notSmilingFish = rampDown(smilingProb, 0.32, 0.14);
+  const mouthShrugLower = clamp01(
+    fishGapBand * fishProtrusion * fishNarrow * notWideOpen * notSmilingFish,
+  );
+  const mouthFunnel = clamp01(jawOpen * clamp01(1 - mouthWidthNorm * 1.1));
 
   const mouthCenterY =
     upperLip && lowerLip ? (upperLip.y + lowerLip.y) / 2 : bounds.y + boundsH * 0.62;
