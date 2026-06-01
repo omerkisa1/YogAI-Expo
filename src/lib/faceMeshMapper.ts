@@ -20,7 +20,11 @@ const squintFromEyeOpen = (open: number) => {
   return clamp01((0.75 - open) / 0.35);
 };
 
-const mapBrowRaise = (raw: number) => clamp01((raw - 0.1) / 0.1);
+const BROW_NEUTRAL_RAW = 0.13;
+const BROW_RAISE_SPAN = 0.065;
+
+const mapBrowRaise = (raw: number) =>
+  clamp01((raw - BROW_NEUTRAL_RAW) / BROW_RAISE_SPAN);
 
 const mapBrowDown = (raw: number) => clamp01((0.14 - raw) / 0.06);
 
@@ -109,15 +113,17 @@ export function buildBlendshapesFromMlKit(face: Face): Map<string, number> {
   const leftEye = contours?.LEFT_EYE?.length ? avg(contours.LEFT_EYE) : null;
   const rightEye = contours?.RIGHT_EYE?.length ? avg(contours.RIGHT_EYE) : null;
   const browRaiseLeftRaw =
-    leftBrow && leftEye ? Math.hypot(leftBrow.x - leftEye.x, leftBrow.y - leftEye.y) / boundsH : 0.12;
+    leftBrow && leftEye
+      ? Math.hypot(leftBrow.x - leftEye.x, leftBrow.y - leftEye.y) / boundsH
+      : BROW_NEUTRAL_RAW;
   const browRaiseRightRaw =
     rightBrow && rightEye
       ? Math.hypot(rightBrow.x - rightEye.x, rightBrow.y - rightEye.y) / boundsH
-      : 0.12;
+      : BROW_NEUTRAL_RAW;
 
   const browRaiseLeft = mapBrowRaise(browRaiseLeftRaw);
   const browRaiseRight = mapBrowRaise(browRaiseRightRaw);
-  const browInnerUp = clamp01((browRaiseLeft + browRaiseRight) / 2);
+  const browInnerUp = Math.max(browRaiseLeft, browRaiseRight);
   const browDownLeft = mapBrowDown(browRaiseLeftRaw);
   const browDownRight = mapBrowDown(browRaiseRightRaw);
 

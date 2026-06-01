@@ -69,7 +69,7 @@ const FACE_EXERCISE_CONFIGS: Record<string, FaceRepConfig> = {
     blendshapeNames: ["browInnerUp"],
     aggregation: "max",
     enterThreshold: 0.45,
-    exitThreshold: 0.1,
+    exitThreshold: 0.28,
     repTarget: 10,
     feedbackKey: "feedbackBrowRaise",
     barLabelKey: "browRaiseLevel",
@@ -222,9 +222,9 @@ const FACE_EXERCISE_CONFIGS: Record<string, FaceRepConfig> = {
   },
   face_brow_outer_lift: {
     blendshapeNames: ["browOuterUpLeft", "browOuterUpRight"],
-    aggregation: "average",
-    enterThreshold: 0.3,
-    exitThreshold: 0.07,
+    aggregation: "max",
+    enterThreshold: 0.45,
+    exitThreshold: 0.28,
     repTarget: 10,
     feedbackKey: "feedbackBrowOuterLift",
     barLabelKey: "browOuterLiftLevel",
@@ -262,7 +262,10 @@ function createFaceRepCounter(poseId: string, customTarget?: number) {
   let reps = 0;
   let smoothedValue = 0;
   let lastRepTime = 0;
-  const smoothAlpha = 0.85;
+  const smoothAlphaRise = 0.85;
+  const smoothAlphaFall = 0.5;
+  const pickSmoothAlpha = (prev: number, next: number) =>
+    next < prev ? smoothAlphaFall : smoothAlphaRise;
 
   let altPhase: "A" | "B" = "A";
   let altSmoothedA = 0;
@@ -286,8 +289,10 @@ function createFaceRepCounter(poseId: string, customTarget?: number) {
     if (config.alternating) {
       const rawA = readBlendshapeValue(blendshapes, config);
       const rawB = readBlendshapeValueB(blendshapes, config);
-      altSmoothedA = altSmoothedA * (1 - smoothAlpha) + rawA * smoothAlpha;
-      altSmoothedB = altSmoothedB * (1 - smoothAlpha) + rawB * smoothAlpha;
+      const alphaA = pickSmoothAlpha(altSmoothedA, rawA);
+      const alphaB = pickSmoothAlpha(altSmoothedB, rawB);
+      altSmoothedA = altSmoothedA * (1 - alphaA) + rawA * alphaA;
+      altSmoothedB = altSmoothedB * (1 - alphaB) + rawB * alphaB;
 
       const activeSmoothed = altPhase === "A" ? altSmoothedA : altSmoothedB;
       const displayValue = altPhase === "A" ? rawA : rawB;
@@ -301,7 +306,10 @@ function createFaceRepCounter(poseId: string, customTarget?: number) {
           feedbackState = "guide";
         }
       } else if (state === "open") {
-        if (activeSmoothed < config.exitThreshold) {
+        const activeRaw = altPhase === "A" ? rawA : rawB;
+        const belowExit =
+          activeRaw < config.exitThreshold || activeSmoothed < config.exitThreshold;
+        if (belowExit) {
           if (altPhase === "A") {
             altPhase = "B";
             state = "alt_first_done";
@@ -356,6 +364,7 @@ function createFaceRepCounter(poseId: string, customTarget?: number) {
       }
     }
 
+    const smoothAlpha = pickSmoothAlpha(smoothedValue, raw);
     smoothedValue = smoothedValue * (1 - smoothAlpha) + raw * smoothAlpha;
     const displayValue = raw;
 
@@ -371,8 +380,10 @@ function createFaceRepCounter(poseId: string, customTarget?: number) {
         }
         break;
 
-      case "open":
-        if (smoothedValue < config.exitThreshold) {
+      case "open": {
+        const belowExit =
+          raw < config.exitThreshold || smoothedValue < config.exitThreshold;
+        if (belowExit) {
           const now = Date.now();
           if (now - lastRepTime > MIN_REP_INTERVAL_MS) {
             reps++;
@@ -384,6 +395,7 @@ function createFaceRepCounter(poseId: string, customTarget?: number) {
           feedbackState = "hold";
         }
         break;
+      }
 
       case "closing":
         state = "idle";
