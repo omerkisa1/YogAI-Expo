@@ -1,0 +1,54 @@
+import { useEffect, useMemo, useRef } from 'react';
+import {
+  runAsync,
+  runAtTargetFps,
+  useFrameProcessor,
+  type CameraPosition,
+  type Frame,
+} from 'react-native-vision-camera';
+import { useFaceDetector, type Face } from 'react-native-vision-camera-face-detector';
+import { useRunOnJS } from 'react-native-worklets-core';
+
+import { faceLandmarkerDetectionCallback, getFaceDetectionOptions } from './useFaceLandmarker';
+
+const FACE_ML_FPS = 15;
+
+export type UseFaceVisionPipelineOptions = {
+  active: boolean;
+  cameraFacing: CameraPosition;
+};
+
+export function useFaceVisionPipeline({ active, cameraFacing }: UseFaceVisionPipelineOptions) {
+  const activeRef = useRef(active);
+  activeRef.current = active;
+
+  const faceDetectionOptions = useMemo(
+    () => getFaceDetectionOptions(cameraFacing),
+    [cameraFacing],
+  );
+  const { detectFaces, stopListeners } = useFaceDetector(faceDetectionOptions);
+
+  useEffect(() => () => stopListeners(), [stopListeners]);
+
+  const onFacesDetected = useRunOnJS((faces: Face[], timestamp: number) => {
+    if (!activeRef.current) return;
+    faceLandmarkerDetectionCallback(faces, { timestamp } as Frame);
+  }, []);
+
+  const frameProcessor = useFrameProcessor(
+    frame => {
+      'worklet';
+      runAtTargetFps(FACE_ML_FPS, () => {
+        'worklet';
+        runAsync(frame, () => {
+          'worklet';
+          const faces = detectFaces(frame);
+          onFacesDetected(faces, frame.timestamp);
+        });
+      });
+    },
+    [detectFaces, onFacesDetected],
+  );
+
+  return { frameProcessor };
+}

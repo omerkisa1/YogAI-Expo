@@ -11,6 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useAuthReady } from '@/features/auth/hooks/useAuthReady';
 import { useProfile } from '@/features/profile/hooks/useProfile';
 import api from '@/shared/api/axiosInstance';
 import Button from '@/shared/components/Button';
@@ -81,6 +82,7 @@ function InfoRow({ icon, label, value }: { icon: string; label: string; value: s
 
 const PoseDetailScreen = ({ route, navigation }: Props) => {
   const { poseId } = route.params;
+  const authReady = useAuthReady();
   const profileQuery = useProfile();
   const locale = profileQuery.data?.preferred_language ?? 'tr';
 
@@ -88,6 +90,8 @@ const PoseDetailScreen = ({ route, navigation }: Props) => {
     queryKey: ['pose-detail', poseId],
     queryFn: () =>
       api.get<ApiWrapper<Pose>>(`/api/v1/yoga/poses/${poseId}`).then(r => r.data.data),
+    enabled: authReady && Boolean(poseId),
+    staleTime: 10 * 60 * 1000,
   });
 
   if (poseQuery.isLoading) {

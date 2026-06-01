@@ -11,9 +11,13 @@ import Toast, { type ToastConfig } from 'react-native-toast-message';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { authService } from '@/features/auth/services/authService';
 import { useAuthStore } from '@/features/auth/stores/authStore';
+import { planService } from '@/features/plans/services/planService';
+import { profileService } from '@/features/profile/services/profileService';
+import { trainingService } from '@/features/training/services/trainingService';
 import RootNavigator from '@/navigation/RootNavigator';
 import OfflineBanner from '@/shared/components/OfflineBanner';
 import AppSplash from '@/shared/components/AppSplash';
+import { clearAuthTokenCache } from '@/shared/api/axiosInstance';
 import { queryClient } from '@/shared/api/queryClient';
 import { colors } from '@/theme/colors';
 import { spacing } from '@/theme/spacing';
@@ -87,22 +91,34 @@ const toastConfig: ToastConfig = {
 const App = () => {
   const setUser = useAuthStore(state => state.setUser);
   const isLoading = useAuthStore(state => state.isLoading);
+  const user = useAuthStore(state => state.user);
   const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
     let previousUID: string | null = null;
-    const unsubscribeAuth = authService.onAuthStateChanged(async user => {
-      const currentUID = user?.uid ?? null;
+    const unsubscribeAuth = authService.onAuthStateChanged(async firebaseUser => {
+      const currentUID = firebaseUser?.uid ?? null;
       if (previousUID !== null && previousUID !== currentUID) {
         queryClient.clear();
+        clearAuthTokenCache();
+      }
+      if (!firebaseUser) {
+        clearAuthTokenCache();
       }
       previousUID = currentUID;
-      const provider = user ? authService.getAuthProvider() : 'unknown';
-      setUser(user, provider);
+      const provider = firebaseUser ? authService.getAuthProvider() : 'unknown';
+      setUser(firebaseUser, provider);
       try { await SplashScreen.hideAsync(); } catch { /* ignored */ }
     });
     return () => { unsubscribeAuth(); };
   }, [setUser]);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    void queryClient.prefetchQuery({ queryKey: ['profile'], queryFn: profileService.getProfile });
+    void queryClient.prefetchQuery({ queryKey: ['plans'], queryFn: planService.getPlans });
+    void queryClient.prefetchQuery({ queryKey: ['training', 'sessions'], queryFn: trainingService.getSessions });
+  }, [user?.uid]);
 
   useEffect(() => {
     const unsubscribeNetInfo = NetInfo.addEventListener(state => {
@@ -122,17 +138,21 @@ const App = () => {
     return () => { subscription.remove(); };
   }, []);
 
-  if (isLoading) return <AppSplash />;
-
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
-          <NavigationContainer linking={linking}>
-            <RootNavigator />
-            <OfflineBanner visible={isOffline} />
-          </NavigationContainer>
-          <Toast config={toastConfig} position="top" topOffset={50} />
+          {isLoading ? (
+            <AppSplash />
+          ) : (
+            <>
+              <NavigationContainer linking={linking}>
+                <RootNavigator />
+                <OfflineBanner visible={isOffline} />
+              </NavigationContainer>
+              <Toast config={toastConfig} position="top" topOffset={50} />
+            </>
+          )}
         </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

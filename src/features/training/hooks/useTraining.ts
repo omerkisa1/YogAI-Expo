@@ -1,18 +1,45 @@
 import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { SubmitPoseRequest } from '@/shared/types/training';
+import { useAuthReady } from '@/features/auth/hooks/useAuthReady';
+import { computeTrainingStatsFromSessions } from '@/lib/computeTrainingStats';
+import type { SubmitPoseRequest, TrainingStats } from '@/shared/types/training';
 import { trainingService } from '../services/trainingService';
 
-export const useTrainingSessions = () =>
-  useQuery({ queryKey: ['training', 'sessions'], queryFn: trainingService.getSessions });
+export const useTrainingSessions = () => {
+  const authReady = useAuthReady();
+  return useQuery({
+    queryKey: ['training', 'sessions'],
+    queryFn: trainingService.getSessions,
+    enabled: authReady,
+  });
+};
 
-export const useTrainingSession = (id: string) =>
-  useQuery({ queryKey: ['training', 'sessions', id], queryFn: () => trainingService.getSession(id), enabled: Boolean(id) });
+export const useTrainingSession = (id: string) => {
+  const authReady = useAuthReady();
+  return useQuery({
+    queryKey: ['training', 'sessions', id],
+    queryFn: () => trainingService.getSession(id),
+    enabled: authReady && Boolean(id),
+  });
+};
 
-export const useTrainingStats = () =>
-  useQuery({ queryKey: ['training', 'stats'], queryFn: trainingService.getStats });
+export const useTrainingStats = () => {
+  const sessionsQuery = useTrainingSessions();
+  const data = useMemo<TrainingStats | undefined>(
+    () => (sessionsQuery.data ? computeTrainingStatsFromSessions(sessionsQuery.data) : undefined),
+    [sessionsQuery.data],
+  );
+  return {
+    data,
+    isLoading: sessionsQuery.isLoading,
+    isFetching: sessionsQuery.isFetching,
+    isError: sessionsQuery.isError,
+    isSuccess: sessionsQuery.isSuccess,
+    error: sessionsQuery.error,
+    refetch: sessionsQuery.refetch,
+  };
+};
 
-/** Plan kimliğine göre tamamlanan oturum sayısı (ilerleme metni için; sahte yüzde üretmez) */
 export const useCompletedSessionsByPlan = () => {
   const q = useTrainingSessions();
   return useMemo(() => {
@@ -32,7 +59,6 @@ export const useStartTrainingSession = () => {
     mutationFn: trainingService.startSession,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['training', 'sessions'] });
-      queryClient.invalidateQueries({ queryKey: ['training', 'stats'] });
     },
   });
 };
@@ -56,7 +82,6 @@ export const useCompleteTrainingSession = () => {
     onSuccess: (_, sessionId) => {
       queryClient.invalidateQueries({ queryKey: ['training', 'sessions'] });
       queryClient.invalidateQueries({ queryKey: ['training', 'sessions', sessionId] });
-      queryClient.invalidateQueries({ queryKey: ['training', 'stats'] });
     },
   });
 };

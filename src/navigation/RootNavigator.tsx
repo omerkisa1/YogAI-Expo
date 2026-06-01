@@ -84,7 +84,6 @@ const AuthenticatedNavigator = () => {
 };
 
 const RootNavigator = () => {
-  const isLoading = useAuthStore(state => state.isLoading);
   const isAuthenticated = useAuthStore(state => state.isAuthenticated);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(false);
   const [isOnboardingLoading, setOnboardingLoading] = useState(true);
@@ -106,7 +105,7 @@ const RootNavigator = () => {
     await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, 'true');
   }, []);
 
-  if (isLoading || isOnboardingLoading) {
+  if (isOnboardingLoading) {
     return <AppSplash />;
   }
 

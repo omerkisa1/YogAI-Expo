@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-
+import { useAuthReady } from '@/features/auth/hooks/useAuthReady';
 import api from '@/shared/api/axiosInstance';
 import type { AnalyzablePose, YogaApiResponse } from '@/features/pose/analyzablePoseTypes';
 import { parseLandmarkRules, type LandmarkRule } from '@/lib/poseAnalyzer';
@@ -21,13 +21,15 @@ export const RULES_SOURCE_UI_INITIAL: RulesSourceUi = {
 };
 
 export function usePoseDetailAndRules(poseId: string | null) {
+  const authReady = useAuthReady();
   const poseDetailQuery = useQuery<AnalyzablePose>({
     queryKey: ['pose-detail', poseId],
     queryFn: async () => {
       const res = await api.get<YogaApiResponse<AnalyzablePose>>(`/api/v1/yoga/poses/${poseId}`);
       return res.data.data;
     },
-    enabled: Boolean(poseId),
+    enabled: authReady && Boolean(poseId),
+    staleTime: 10 * 60 * 1000,
   });
 
   const selectedPose = poseDetailQuery.data;

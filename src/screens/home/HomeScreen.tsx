@@ -191,19 +191,17 @@ const HomeScreen = () => {
   const hasCriticalError = profileQuery.isError || plansQuery.isError;
   const isInitialLoading =
     (profileQuery.isLoading && !profileQuery.data) ||
-    (plansQuery.isLoading && !plansQuery.data) ||
-    (statsQuery.isLoading && !statsQuery.data);
+    (plansQuery.isLoading && !plansQuery.data);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.allSettled([
       profileQuery.refetch(),
       plansQuery.refetch(),
-      statsQuery.refetch(),
       queryClient.invalidateQueries({ queryKey: ['training', 'sessions'] }),
     ]);
     setRefreshing(false);
-  }, [profileQuery, plansQuery, statsQuery, queryClient]);
+  }, [profileQuery, plansQuery, queryClient]);
 
   const handleOpenPlan = useCallback(
     (planId: string) => {

@@ -9,11 +9,10 @@ import {
   View,
 } from 'react-native';
 import { NavigationProp, useNavigation } from '@react-navigation/native';
-import { useQuery } from '@tanstack/react-query';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAllPoses } from '@/features/pose/hooks/useAllPoses';
 import { useProfile } from '@/features/profile/hooks/useProfile';
-import api from '@/shared/api/axiosInstance';
 import EmptyState from '@/shared/components/EmptyState';
 import ErrorView from '@/shared/components/ErrorView';
 import SkeletonLoader from '@/shared/components/SkeletonLoader';
@@ -130,8 +129,6 @@ function PoseLibraryCard({ pose, locale, onPress }: { pose: Pose; locale: string
   );
 }
 
-type ApiWrapper<T> = { status: number; message: string; data: T };
-
 const ExploreScreen = () => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const profileQuery = useProfile();
@@ -141,12 +138,7 @@ const ExploreScreen = () => {
   const [activeCategory, setActiveCategory] = useState<CategoryFilter>('all');
   const [activeDifficulty, setActiveDifficulty] = useState<DifficultyFilter>(0);
 
-  const posesQuery = useQuery<Pose[]>({
-    queryKey: ['all-poses'],
-    queryFn: () =>
-      api.get<ApiWrapper<Pose[]>>('/api/v1/yoga/poses').then(r => r.data.data ?? []),
-    staleTime: 10 * 60 * 1000,
-  });
+  const posesQuery = useAllPoses();
 
   const filteredPoses = useMemo(() => {
     const poses = posesQuery.data ?? [];

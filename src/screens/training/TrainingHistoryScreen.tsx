@@ -56,7 +56,12 @@ const TrainingHistoryScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
 
   const sessions = useMemo(() => sessionsQuery.data ?? [], [sessionsQuery.data]);
-  const stats = statsQuery.data;
+  const stats = statsQuery.data ?? {
+    total_sessions: 0,
+    total_duration_sec: 0,
+    average_accuracy: 0,
+    current_streak: 0,
+  };
   const totalSessions = safeNumber(stats?.total_sessions, 0);
   const totalDurationSeconds = safeNumber(stats?.total_duration_sec, 0);
   const avgAccuracy = safeNumber(stats?.average_accuracy, 0);
@@ -67,11 +72,11 @@ const TrainingHistoryScreen = () => {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.allSettled([sessionsQuery.refetch(), statsQuery.refetch()]);
+    await sessionsQuery.refetch();
     setRefreshing(false);
-  }, [sessionsQuery, statsQuery]);
+  }, [sessionsQuery]);
 
-  if ((sessionsQuery.isLoading && !sessionsQuery.data) || (statsQuery.isLoading && !statsQuery.data)) {
+  if (sessionsQuery.isLoading && !sessionsQuery.data) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
@@ -84,7 +89,7 @@ const TrainingHistoryScreen = () => {
     );
   }
 
-  if (sessionsQuery.isError || statsQuery.isError) {
+  if (sessionsQuery.isError) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" backgroundColor={colors.background} />

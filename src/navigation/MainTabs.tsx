@@ -37,6 +37,7 @@ const MainTabs = () => {
       initialRouteName="Home"
       tabBar={props => <CustomTabBar {...props} />}
       screenOptions={{
+        lazy: true,
         headerShadowVisible: false,
         headerStyle: { backgroundColor: colors.background },
         headerTintColor: colors.primary,

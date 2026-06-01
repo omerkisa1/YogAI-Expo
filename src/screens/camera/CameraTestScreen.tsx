@@ -22,11 +22,10 @@ import {
   useCameraFormat,
   useCameraPermission,
 } from 'react-native-vision-camera';
-import type { Camera as VisionCameraType } from 'react-native-vision-camera';
-import { Camera as FaceDetectorCamera } from 'react-native-vision-camera-face-detector';
 import type { Orientation } from 'react-native-vision-camera';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import { useAuthReady } from '@/features/auth/hooks/useAuthReady';
 import { useProfile } from '@/features/profile/hooks/useProfile';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -34,7 +33,8 @@ import api from '@/shared/api/axiosInstance';
 import type { AnalyzablePoseMeta, YogaApiResponse } from '@/features/pose/analyzablePoseTypes';
 import { usePoseDetailAndRules, type RulesSourceUi } from '@/features/pose/usePoseDetailAndRules';
 import { usePoseVisionPipeline } from '@/features/pose/usePoseVisionPipeline';
-import { faceLandmarkerDetectionCallback, getFaceDetectionOptions, useFaceLandmarker } from '@/features/pose/useFaceLandmarker';
+import { useFaceLandmarker } from '@/features/pose/useFaceLandmarker';
+import { useFaceVisionPipeline } from '@/features/pose/useFaceVisionPipeline';
 import { HAND_LANDMARKER_SUPPORTED, useHandLandmarker } from '@/features/pose/useHandLandmarker';
 import Button from '@/shared/components/Button';
 import {
@@ -166,6 +166,7 @@ type RuleListIconName =
 const CameraTestScreen = ({ navigation }: Props) => {
   const insets = useSafeAreaInsets();
   const { hasPermission, requestPermission } = useCameraPermission();
+  const authReady = useAuthReady();
   const profileQuery = useProfile();
   const locale = profileQuery.data?.preferred_language ?? 'tr';
 
@@ -203,6 +204,8 @@ const CameraTestScreen = ({ navigation }: Props) => {
       const res = await api.get<YogaApiResponse<AnalyzablePoseMeta[]>>('/api/v1/yoga/poses/analyzable');
       return res.data.data;
     },
+    enabled: authReady,
+    staleTime: 10 * 60 * 1000,
   });
 
   const userPoses = useMemo(
@@ -262,10 +265,6 @@ const CameraTestScreen = ({ navigation }: Props) => {
   const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('front');
   /** Önizleme: 1 = tam kadraj; <1 = daha “uzak” (küçük görüntü). ML tam çözünürlükte kalır. */
   const [previewScale, setPreviewScale] = useState<number>(1);
-  const faceDetectionOptions = useMemo(
-    () => getFaceDetectionOptions(cameraFacing),
-    [cameraFacing],
-  );
   const [instructionCardWidth, setInstructionCardWidth] = useState(
     () => Dimensions.get('window').width - spacing.base * 2,
   );
@@ -278,7 +277,6 @@ const CameraTestScreen = ({ navigation }: Props) => {
   const debugFrameCountRef = useRef(0);
   const DEBUG_MAX_FRAMES = 10;
 
-  const faceCameraRef = useRef<VisionCameraType | null>(null);
   const faceRepCounterRef = useRef<ReturnType<typeof createFaceRepCounter> | null>(null);
   const lastFaceRepRef = useRef(0);
 
@@ -352,6 +350,11 @@ const CameraTestScreen = ({ navigation }: Props) => {
       };
     }
   }, [format]);
+
+  const { frameProcessor: faceFrameProcessor } = useFaceVisionPipeline({
+    active: isAnalyzing && isFaceExercise,
+    cameraFacing,
+  });
 
   const { frameProcessor, lastResultRef, resetSmoothers, fpsCountRef } =
     usePoseVisionPipeline({
@@ -740,42 +743,28 @@ const CameraTestScreen = ({ navigation }: Props) => {
               ]}
               pointerEvents="box-none"
             >
-              {isFaceExercise ? (
-                <FaceDetectorCamera
-                  ref={faceCameraRef}
-                  style={StyleSheet.absoluteFill}
-                  device={device}
-                  isActive={isAnalyzing}
-                  format={format}
-                  fps={30}
-                  photo={false}
-                  video={false}
-                  audio={false}
-                  enableBufferCompression={false}
-                  faceDetectionCallback={faceLandmarkerDetectionCallback}
-                  faceDetectionOptions={faceDetectionOptions}
-                  videoStabilizationMode="off"
-                  outputOrientation="device"
-                  resizeMode={devResizeMode}
-                />
-              ) : (
-                <VisionCamera
-                  style={StyleSheet.absoluteFill}
-                  device={device}
-                  isActive={isAnalyzing}
-                  format={format}
-                  fps={30}
-                  photo={false}
-                  video={false}
-                  audio={false}
-                  enableBufferCompression={false}
-                  frameProcessor={isBodyExercise ? frameProcessor : undefined}
-                  pixelFormat="yuv"
-                  videoStabilizationMode="off"
-                  outputOrientation="device"
-                  resizeMode={devResizeMode}
-                />
-              )}
+              <VisionCamera
+                style={StyleSheet.absoluteFill}
+                device={device}
+                isActive={isAnalyzing}
+                format={format}
+                fps={30}
+                photo={false}
+                video={false}
+                audio={false}
+                enableBufferCompression={false}
+                frameProcessor={
+                  isFaceExercise
+                    ? faceFrameProcessor
+                    : isBodyExercise
+                      ? frameProcessor
+                      : undefined
+                }
+                pixelFormat="yuv"
+                videoStabilizationMode="off"
+                outputOrientation="device"
+                resizeMode={devResizeMode}
+              />
 
               {isBodyExercise && landmarks.length > 0 && previewInnerW > 0 && (
                 <SkeletonOverlay

@@ -10,10 +10,31 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-api.interceptors.request.use(async config => {
+const TOKEN_TTL_MS = 50 * 60 * 1000;
+let cachedToken: { value: string; fetchedAt: number } | null = null;
+
+export const clearAuthTokenCache = () => {
+  cachedToken = null;
+};
+
+const getCachedIdToken = async (forceRefresh = false): Promise<string | null> => {
   const user = auth.currentUser;
-  if (user) {
-    const token = await user.getIdToken();
+  if (!user) {
+    clearAuthTokenCache();
+    return null;
+  }
+  const now = Date.now();
+  if (!forceRefresh && cachedToken && now - cachedToken.fetchedAt < TOKEN_TTL_MS) {
+    return cachedToken.value;
+  }
+  const token = await user.getIdToken(forceRefresh);
+  cachedToken = { value: token, fetchedAt: now };
+  return token;
+};
+
+api.interceptors.request.use(async config => {
+  const token = await getCachedIdToken();
+  if (token) {
     config.headers = config.headers ?? {};
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -37,12 +58,16 @@ api.interceptors.response.use(
     if (status === 401) {
       const user = auth.currentUser;
       if (user && !config._retry) {
-        const freshToken = await user.getIdToken(true);
-        config._retry = true;
-        config.headers = config.headers ?? {};
-        config.headers.Authorization = `Bearer ${freshToken}`;
-        return api.request(config);
+        clearAuthTokenCache();
+        const freshToken = await getCachedIdToken(true);
+        if (freshToken) {
+          config._retry = true;
+          config.headers = config.headers ?? {};
+          config.headers.Authorization = `Bearer ${freshToken}`;
+          return api.request(config);
+        }
       }
+      clearAuthTokenCache();
       useAuthStore.getState().setUser(null);
     }
 

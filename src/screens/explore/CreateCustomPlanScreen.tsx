@@ -10,14 +10,13 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCreateCustomPlan } from '@/features/plans/hooks/useCreateCustomPlan';
+import { useAllPoses } from '@/features/pose/hooks/useAllPoses';
 import { useProfile } from '@/features/profile/hooks/useProfile';
-import api from '@/shared/api/axiosInstance';
 import Button from '@/shared/components/Button';
 import Touchable from '@/shared/components/Touchable';
 import type { Pose } from '@/shared/types/pose';
@@ -64,8 +63,6 @@ const INJURY_CONTRAINDICATIONS: Record<string, string[]> = {
   hip_injury: ['hip_injury'],
 };
 
-type ApiWrapper<T> = { status: number; message: string; data: T };
-
 const CreateCustomPlanScreen = ({ route, navigation }: Props) => {
   const profileQuery = useProfile();
   const locale = profileQuery.data?.preferred_language ?? 'tr';
@@ -78,12 +75,7 @@ const CreateCustomPlanScreen = ({ route, navigation }: Props) => {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<CategoryFilter>('all');
 
-  const posesQuery = useQuery<Pose[]>({
-    queryKey: ['all-poses'],
-    queryFn: () =>
-      api.get<ApiWrapper<Pose[]>>('/api/v1/yoga/poses').then(r => r.data.data ?? []),
-    staleTime: 10 * 60 * 1000,
-  });
+  const posesQuery = useAllPoses({ requireFocus: false });
 
   // addPoseId param — PoseDetailScreen'den gelen tek poz ön seçimi
   const handledAddPoseRef = useRef<string | null>(null);

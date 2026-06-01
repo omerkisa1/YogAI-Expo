@@ -18,8 +18,6 @@ import {
   useCameraFormat,
   useCameraPermission,
 } from 'react-native-vision-camera';
-import type { Camera as VisionCameraType } from 'react-native-vision-camera';
-import { Camera as FaceDetectorCamera } from 'react-native-vision-camera-face-detector';
 import type { Orientation } from 'react-native-vision-camera';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -27,7 +25,8 @@ import { usePlan } from '@/features/plans/hooks/usePlan';
 import { useProfile } from '@/features/profile/hooks/useProfile';
 import { usePoseDetailAndRules } from '@/features/pose/usePoseDetailAndRules';
 import { usePoseVisionPipeline } from '@/features/pose/usePoseVisionPipeline';
-import { faceLandmarkerDetectionCallback, getFaceDetectionOptions, useFaceLandmarker } from '@/features/pose/useFaceLandmarker';
+import { useFaceLandmarker } from '@/features/pose/useFaceLandmarker';
+import { useFaceVisionPipeline } from '@/features/pose/useFaceVisionPipeline';
 import { HAND_LANDMARKER_SUPPORTED } from '@/features/pose/useHandLandmarker';
 import { useCompleteTrainingSession, useStartTrainingSession, useSubmitPose } from '@/features/training/hooks/useTraining';
 import Toast from 'react-native-toast-message';
@@ -141,11 +140,6 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('front');
   const [previewScale, setPreviewScale] = useState(1);
   const faceLandmarker = useFaceLandmarker();
-  const faceCameraRef = useRef<VisionCameraType | null>(null);
-  const faceDetectionOptions = useMemo(
-    () => getFaceDetectionOptions(cameraFacing),
-    [cameraFacing],
-  );
 
   const devResizeMode = 'cover' as const;
   const devResizeModeRef = useRef<'cover' | 'contain'>('cover');
@@ -221,6 +215,11 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   const onSmoothedAccuracy = useCallback((pct: number) => {
     accuracySamplesRef.current.push(pct);
   }, []);
+
+  const { frameProcessor: faceFrameProcessor } = useFaceVisionPipeline({
+    active: screenState === 'posing' && isFaceExercise,
+    cameraFacing,
+  });
 
   const { frameProcessor, lastResultRef, resetSmoothers } = usePoseVisionPipeline({
     rulesRef,
@@ -668,42 +667,28 @@ const TrainingScreen = ({ route, navigation }: Props) => {
                 ]}
                 pointerEvents="box-none"
               >
-                  {isFaceExercise ? (
-                    <FaceDetectorCamera
-                      ref={faceCameraRef}
-                      style={StyleSheet.absoluteFill}
-                      device={device}
-                      isActive={screenState === 'posing'}
-                      format={format}
-                      fps={30}
-                      photo={false}
-                      video={false}
-                      audio={false}
-                      enableBufferCompression={false}
-                      faceDetectionCallback={faceLandmarkerDetectionCallback}
-                      faceDetectionOptions={faceDetectionOptions}
-                      videoStabilizationMode="off"
-                      outputOrientation="device"
-                      resizeMode={devResizeMode}
-                    />
-                  ) : (
-                    <VisionCamera
-                      style={StyleSheet.absoluteFill}
-                      device={device}
-                      isActive={screenState === 'posing'}
-                      format={format}
-                      fps={30}
-                      photo={false}
-                      video={false}
-                      audio={false}
-                      enableBufferCompression={false}
-                      frameProcessor={isBodyExercise ? frameProcessor : undefined}
-                      pixelFormat="yuv"
-                      videoStabilizationMode="off"
-                      outputOrientation="device"
-                      resizeMode={devResizeMode}
-                    />
-                  )}
+                  <VisionCamera
+                    style={StyleSheet.absoluteFill}
+                    device={device}
+                    isActive={screenState === 'posing'}
+                    format={format}
+                    fps={30}
+                    photo={false}
+                    video={false}
+                    audio={false}
+                    enableBufferCompression={false}
+                    frameProcessor={
+                      isFaceExercise
+                        ? faceFrameProcessor
+                        : isBodyExercise
+                          ? frameProcessor
+                          : undefined
+                    }
+                    pixelFormat="yuv"
+                    videoStabilizationMode="off"
+                    outputOrientation="device"
+                    resizeMode={devResizeMode}
+                  />
                   {isBodyExercise && landmarks.length > 0 && previewInnerW > 0 && (
                     <SkeletonOverlay
                       landmarks={landmarks}
