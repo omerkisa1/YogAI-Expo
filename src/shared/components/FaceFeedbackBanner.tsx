@@ -66,23 +66,11 @@ export default function FaceFeedbackBanner({
               ? styles.textBlue
               : styles.textGreen;
 
-    const icon =
-      feedbackState === 'guide_tilt'
-        ? '↩️'
-        : feedbackState === 'guide_hand'
-          ? '👆'
-          : feedbackState === 'guide_action'
-            ? '✋'
-            : feedbackState === 'guide_motion'
-              ? '🔄'
-              : feedbackState === 'hold'
-                ? '✊'
-                : '✅';
-
     return (
-      <View style={[styles.row, bgStyle]}>
-        <Text style={styles.icon}>{icon}</Text>
-        <Text style={[styles.message, textStyle]}>{text}</Text>
+      <View style={[styles.block, bgStyle]}>
+        <Text style={[styles.message, textStyle]} numberOfLines={4}>
+          {text}
+        </Text>
       </View>
     );
   }
@@ -97,38 +85,39 @@ export default function FaceFeedbackBanner({
         ? messages.hold
         : messages.good;
 
-  const bgStyle =
-    feedbackState === 'guide' ? styles.bgMuted : styles.bgGreen;
+  const bgStyle = feedbackState === 'guide' ? styles.bgMuted : styles.bgGreen;
   const textStyle = feedbackState === 'guide' ? styles.textMuted : styles.textGreen;
-  const icon = feedbackState === 'guide' ? '👆' : feedbackState === 'hold' ? '✊' : '✅';
 
   return (
-    <View style={[styles.row, bgStyle]}>
-      <Text style={styles.icon}>{icon}</Text>
-      <Text style={[styles.message, textStyle]}>{text}</Text>
+    <View style={[styles.block, bgStyle]}>
+      <Text style={[styles.message, textStyle]} numberOfLines={4}>
+        {text}
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  block: {
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minWidth: 160,
   },
-  icon: { fontSize: 18 },
-  message: { fontSize: 14, fontWeight: '500', flex: 1 },
-  bgMuted: { backgroundColor: 'rgba(255,255,255,0.1)' },
-  bgGreen: { backgroundColor: 'rgba(34,197,94,0.25)' },
-  bgPurple: { backgroundColor: 'rgba(168,85,247,0.2)' },
-  bgAmber: { backgroundColor: 'rgba(245,158,11,0.2)' },
-  bgBlue: { backgroundColor: 'rgba(59,130,246,0.2)' },
-  textMuted: { color: 'rgba(255,255,255,0.7)' },
-  textGreen: { color: '#86efac' },
-  textPurple: { color: '#d8b4fe' },
+  message: {
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 20,
+    flexShrink: 1,
+  },
+  bgMuted: { backgroundColor: 'rgba(255,255,255,0.14)' },
+  bgGreen: { backgroundColor: 'rgba(34,197,94,0.28)' },
+  bgPurple: { backgroundColor: 'rgba(168,85,247,0.22)' },
+  bgAmber: { backgroundColor: 'rgba(245,158,11,0.22)' },
+  bgBlue: { backgroundColor: 'rgba(59,130,246,0.22)' },
+  textMuted: { color: 'rgba(255,255,255,0.92)' },
+  textGreen: { color: '#bbf7d0' },
+  textPurple: { color: '#e9d5ff' },
   textAmber: { color: '#fde68a' },
-  textBlue: { color: '#93c5fd' },
+  textBlue: { color: '#bfdbfe' },
 });

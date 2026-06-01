@@ -745,6 +745,7 @@ const TrainingScreen = ({ route, navigation }: Props) => {
           locale={locale}
           analysisKind={analysisKind}
           faceDetected={exerciseAnalysis.faceDetected}
+          showFaceLostBanner={exerciseAnalysis.showFaceLostBanner}
           faceRepResult={exerciseAnalysis.faceRepResult}
           faceHandRepResult={exerciseAnalysis.faceHandRepResult}
           repPulse={exerciseAnalysis.repPulse}

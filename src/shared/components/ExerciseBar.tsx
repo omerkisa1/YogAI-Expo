@@ -43,9 +43,10 @@ export function ExerciseBar({
 
 const styles = StyleSheet.create({
   panel: {
-    width: 256,
-    padding: 16,
-    borderRadius: 16,
+    width: 240,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
   label: {

@@ -13,6 +13,7 @@ import {
 import type { ExerciseAnalysisKind } from '@/lib/poseDomain';
 import { useFaceLandmarker } from '@/features/pose/useFaceLandmarker';
 import { useHandLandmarker } from '@/features/pose/useHandLandmarker';
+import { useStableFaceDetected } from '@/features/pose/useStableFaceDetected';
 
 type Params = {
   poseId: string;
@@ -60,6 +61,13 @@ export function useFaceYogaPipeline({
   const prevHandRepsRef = useRef(0);
 
   const resolvedRepTarget = repTarget && repTarget > 0 ? repTarget : undefined;
+  const rawFaceDetected = !!faceFrame?.faceDetected;
+  const { stableFaceDetected, showFaceLostBanner: stableFaceLost } = useStableFaceDetected(
+    rawFaceDetected,
+    active && isFaceMode,
+    faceFrame?.timestamp,
+  );
+  const showFaceLostBanner = active && isFaceMode && stableFaceLost;
 
   useEffect(() => {
     faceRepCounterRef.current = null;
@@ -99,23 +107,24 @@ export function useFaceYogaPipeline({
 
   useEffect(() => {
     if (!active || !poseId || !isFaceMode) return;
-    if (!faceFrame?.faceDetected) return;
 
-    if (isFace && !faceRepCounterRef.current) {
-      faceRepCounterRef.current = createFaceRepCounter(poseId, resolvedRepTarget);
+    if (isFace && FACE_EXERCISE_CONFIGS[poseId] && !faceRepCounterRef.current) {
+      const counter = createFaceRepCounter(poseId, resolvedRepTarget);
+      if (counter) {
+        faceRepCounterRef.current = counter;
+        setFaceRepResult(counter.update(new Map()));
+      }
     }
-    if (isFaceHand && !faceHandRepCounterRef.current) {
-      faceHandRepCounterRef.current = createFaceHandRepCounter(poseId, resolvedRepTarget);
+    if (isFaceHand && FACE_HAND_EXERCISE_CONFIGS[poseId] && !faceHandRepCounterRef.current) {
+      const counter = createFaceHandRepCounter(poseId, resolvedRepTarget);
+      if (counter) {
+        faceHandRepCounterRef.current = counter;
+        setFaceHandRepResult(
+          counter.update([], [], new Map()),
+        );
+      }
     }
-  }, [
-    active,
-    poseId,
-    isFace,
-    isFaceHand,
-    isFaceMode,
-    faceFrame?.faceDetected,
-    resolvedRepTarget,
-  ]);
+  }, [active, poseId, isFace, isFaceHand, isFaceMode, resolvedRepTarget]);
 
   useEffect(() => {
     if (!active || !isFace) return;
@@ -200,9 +209,14 @@ export function useFaceYogaPipeline({
     setFaceHandRepResult(null);
   }, []);
 
-  const faceDetected = !!faceFrame?.faceDetected;
+  const faceDetected = stableFaceDetected || rawFaceDetected;
+  const rawFaceDetectedOut = rawFaceDetected;
+  const hasRepUi = isFace ? faceRepResult != null : isFaceHand ? faceHandRepResult != null : false;
   const pipelineLoading =
-    active && cameraReady && (faceLmLoading || (isFaceHand && handLmLoading));
+    active &&
+    cameraReady &&
+    !hasRepUi &&
+    (faceLmLoading || (isFaceHand && handLmLoading));
   const pipelineError = faceLmError ?? (isFaceHand ? handLmError : null);
 
   return {
@@ -215,6 +229,8 @@ export function useFaceYogaPipeline({
     faceFps: faceFrame?.fps,
     faceFrame,
     faceDetected,
+    rawFaceDetected: rawFaceDetectedOut,
+    showFaceLostBanner,
     pipelineLoading,
     pipelineError,
     repAccuracy,

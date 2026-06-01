@@ -698,6 +698,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
             locale={locale}
             analysisKind={analysisKind}
             faceDetected={exerciseAnalysis.faceDetected}
+            showFaceLostBanner={exerciseAnalysis.showFaceLostBanner}
             faceRepResult={exerciseAnalysis.faceRepResult}
             faceHandRepResult={exerciseAnalysis.faceHandRepResult}
             repPulse={exerciseAnalysis.repPulse}
@@ -776,6 +777,32 @@ const CameraTestScreen = ({ navigation }: Props) => {
           </View>
         )}
 
+        {isFaceMode && isAnalyzing && selectedPose ? (
+          <View
+            style={[
+              styles.faceActiveFooter,
+              { paddingBottom: insets.bottom + spacing.sm },
+            ]}
+          >
+            <Text style={styles.activePoseName} numberOfLines={1}>
+              Poz:{' '}
+              {locale === 'tr'
+                ? selectedPose.name_tr || selectedPose.name_en
+                : selectedPose.name_en || selectedPose.name_tr}
+            </Text>
+            <Button
+              title="Durdur"
+              onPress={handleStop}
+              variant="danger"
+              size="lg"
+              fullWidth
+              icon="stop-circle-outline"
+              accessibilityLabel="Antrenmanı durdur"
+            />
+          </View>
+        ) : null}
+
+        {!isFaceMode && (
         <ScrollView
           style={styles.accuracyScroll}
           contentContainerStyle={[
@@ -785,14 +812,6 @@ const CameraTestScreen = ({ navigation }: Props) => {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {isFaceMode && isAnalyzing && exerciseAnalysis.faceNotDetected && (
-            <View style={styles.faceWarning}>
-              <Text style={styles.faceWarningText}>
-                {locale === 'tr' ? 'Yüz algılanmadı' : 'Face not detected'}
-              </Text>
-            </View>
-          )}
-
           {isBodyExercise && SHOW_VERBOSE_RULES_BANNER ? (
             <RulesSourceBanner state={rulesSourceUi} />
           ) : null}
@@ -955,6 +974,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
             </View>
           )}
         </ScrollView>
+        )}
       </View>
     );
   }
@@ -1771,6 +1791,18 @@ const styles = StyleSheet.create({
     ...typography.bodySm,
     color: colors.textOnDark,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  faceActiveFooter: {
+    position: 'absolute',
+    left: spacing.base,
+    right: spacing.base,
+    bottom: 0,
+    zIndex: 22,
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
   },
   activeFooter: {
     gap: spacing.sm,
