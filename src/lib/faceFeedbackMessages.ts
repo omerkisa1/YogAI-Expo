@@ -88,31 +88,6 @@ export const FEEDBACK_MESSAGES: Record<
       hold: "Hold the kiss — stretch that throat!",
       good: "Beautiful neck stretch!",
     },
-    feedbackNoseScrunch: {
-      guide: "Scrunch your nose as if smelling something unpleasant",
-      hold: "Hold the scrunch!",
-      good: "Nasalis activated!",
-    },
-    feedbackMouthStretch: {
-      guide: "Open wide and pull mouth corners down and outward",
-      hold: "Hold the stretch — feel the neck!",
-      good: "Great platysma stretch!",
-    },
-    feedbackDimpleMaker: {
-      guide: "Suck your cheeks inward toward your teeth",
-      hold: "Hold the hollow — buccinator working!",
-      good: "Cheekbones defined!",
-    },
-    feedbackBrowOuterLift: {
-      guide: "Lift only the outer tails of your eyebrows toward your temples",
-      hold: "Hold the outer lift!",
-      good: "Lateral frontalis activated!",
-    },
-    feedbackMouthShift: {
-      guide: "Slide your closed lips as far as you can to each side",
-      hold: "Hold the stretch!",
-      good: "Great side shift!",
-    },
   },
   tr: {
     feedbackJawOpen: {
@@ -199,31 +174,6 @@ export const FEEDBACK_MESSAGES: Record<
       guide: "Çenenizi tavana doğru kaldırın, ardından öpücük gönderin",
       hold: "Öpücüğü tutun — boğazı gerin!",
       good: "Harika boyun gerimi!",
-    },
-    feedbackNoseScrunch: {
-      guide: "Hoş olmayan bir koku alıyormuşsunuz gibi burnunuzu kıvırın",
-      hold: "Kıvırmayı tutun!",
-      good: "Nasalis aktive oldu!",
-    },
-    feedbackMouthStretch: {
-      guide: "Ağzı geniş açın ve köşeleri aşağıya ve dışarıya çekin",
-      hold: "Gerimi tutun — boynu hissedin!",
-      good: "Harika platysma gerimi!",
-    },
-    feedbackDimpleMaker: {
-      guide: "Yanakları dişlere doğru içeri çekin",
-      hold: "Oyuğu tutun — buccinator çalışıyor!",
-      good: "Elmacık kemikleri belirginleşiyor!",
-    },
-    feedbackBrowOuterLift: {
-      guide: "Sadece kaşların dış kuyruk kısmını şakaklara doğru kaldırın",
-      hold: "Dış kaldırmayı tutun!",
-      good: "Lateral frontalis aktive oldu!",
-    },
-    feedbackMouthShift: {
-      guide: "Kapalı dudaklarınızı her iki yana olabildiğince kaydırın",
-      hold: "Gerilmeyi tutun!",
-      good: "Güzel yana kayma!",
     },
   },
 };
