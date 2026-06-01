@@ -11,6 +11,7 @@ import {
   type FaceHandRepResult,
 } from '@/lib/faceHandRepCounter';
 import type { ExerciseAnalysisKind } from '@/lib/poseDomain';
+import { resetFaceBaseline, isBaselineCalibrated } from '@/lib/faceMeshMapper';
 import { useFaceLandmarker } from '@/features/pose/useFaceLandmarker';
 import { useHandLandmarker } from '@/features/pose/useHandLandmarker';
 import { useStableFaceDetected } from '@/features/pose/useStableFaceDetected';
@@ -69,6 +70,8 @@ export function useFaceYogaPipeline({
   );
   const showFaceLostBanner = active && isFaceMode && stableFaceLost;
 
+  const [isCalibrating, setIsCalibrating] = useState(false);
+
   useEffect(() => {
     faceRepCounterRef.current = null;
     faceHandRepCounterRef.current = null;
@@ -76,6 +79,8 @@ export function useFaceYogaPipeline({
     setFaceHandRepResult(null);
     prevRepsRef.current = 0;
     prevHandRepsRef.current = 0;
+    resetFaceBaseline();
+    setIsCalibrating(true);
   }, [poseId]);
 
   useEffect(() => {
@@ -84,6 +89,8 @@ export function useFaceYogaPipeline({
       stopHandLandmarker();
       return;
     }
+    resetFaceBaseline();
+    setIsCalibrating(true);
     startFaceLandmarker();
     if (isFaceHand) {
       startHandLandmarker();
@@ -137,6 +144,7 @@ export function useFaceYogaPipeline({
       faceFrame.faceLandmarks ?? undefined,
     );
     setFaceRepResult(r);
+    setIsCalibrating(!isBaselineCalibrated());
   }, [active, isFace, faceFrame]);
 
   useEffect(() => {
@@ -153,6 +161,7 @@ export function useFaceYogaPipeline({
       faceFrame.blendshapes,
     );
     setFaceHandRepResult(r);
+    setIsCalibrating(!isBaselineCalibrated());
   }, [active, isFaceHand, faceFrame, handFrame]);
 
   useEffect(() => {
@@ -211,6 +220,7 @@ export function useFaceYogaPipeline({
 
   const faceDetected = stableFaceDetected || rawFaceDetected;
   const rawFaceDetectedOut = rawFaceDetected;
+  const showCalibrationBanner = active && isFaceMode && faceDetected && isCalibrating;
   const hasRepUi = isFace ? faceRepResult != null : isFaceHand ? faceHandRepResult != null : false;
   const pipelineLoading =
     active &&
@@ -231,6 +241,7 @@ export function useFaceYogaPipeline({
     faceDetected,
     rawFaceDetected: rawFaceDetectedOut,
     showFaceLostBanner,
+    showCalibrationBanner,
     pipelineLoading,
     pipelineError,
     repAccuracy,

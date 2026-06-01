@@ -4,7 +4,7 @@ import type { CameraPosition } from 'react-native-vision-camera';
 import type { Face, FrameFaceDetectionOptions } from 'react-native-vision-camera-face-detector';
 
 import {
-  buildBlendshapesFromMlKit,
+  mapMLKitToBlendshapes,
   buildFaceLandmarksFromMlKit,
   type FaceLandmark,
 } from '@/lib/faceMeshMapper';
@@ -94,7 +94,7 @@ export function useFaceLandmarker(): UseFaceLandmarkerReturn {
         }
 
         setCurrentFrame({
-          blendshapes: buildBlendshapesFromMlKit(face),
+          blendshapes: mapMLKitToBlendshapes(face),
           faceLandmarks: buildFaceLandmarksFromMlKit(face),
           timestamp,
           faceDetected: true,

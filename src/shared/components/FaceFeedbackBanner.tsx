@@ -68,7 +68,7 @@ export default function FaceFeedbackBanner({
 
     return (
       <View style={[styles.block, bgStyle]}>
-        <Text style={[styles.message, textStyle]} numberOfLines={4}>
+        <Text style={[styles.message, textStyle]} numberOfLines={3}>
           {text}
         </Text>
       </View>
@@ -90,7 +90,7 @@ export default function FaceFeedbackBanner({
 
   return (
     <View style={[styles.block, bgStyle]}>
-      <Text style={[styles.message, textStyle]} numberOfLines={4}>
+      <Text style={[styles.message, textStyle]} numberOfLines={3}>
         {text}
       </Text>
     </View>

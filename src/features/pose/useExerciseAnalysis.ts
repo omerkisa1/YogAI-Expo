@@ -33,6 +33,7 @@ export function useExerciseAnalysis({
     cameraReady,
     faceNotDetected: pipeline.isFaceMode && pipeline.showFaceLostBanner,
     showFaceLostBanner: pipeline.showFaceLostBanner,
+    showCalibrationBanner: pipeline.showCalibrationBanner,
     effectiveRepTarget: pipeline.repResult?.target ?? repTarget ?? 0,
     faceLmLoading: pipeline.faceLmLoading,
     handLmLoading: pipeline.handLmLoading,

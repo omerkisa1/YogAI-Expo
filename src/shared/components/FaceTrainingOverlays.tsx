@@ -10,13 +10,14 @@ import FaceFeedbackBanner from '@/shared/components/FaceFeedbackBanner';
 import { ExerciseBar } from '@/shared/components/ExerciseBar';
 import { FaceYogaCompletionOverlay } from '@/shared/components/FaceYogaCompletionOverlay';
 
-const FOOTER_RESERVE = 132;
+const FOOTER_RESERVE = 140;
 
 type Props = {
   locale: AppLocale;
   analysisKind: ExerciseAnalysisKind;
   faceDetected: boolean;
   showFaceLostBanner?: boolean;
+  showCalibrationBanner?: boolean;
   faceRepResult: FaceRepResult | null;
   faceHandRepResult: FaceHandRepResult | null;
   repPulse: boolean;
@@ -103,6 +104,7 @@ export function FaceTrainingOverlays({
   analysisKind,
   faceDetected,
   showFaceLostBanner = false,
+  showCalibrationBanner = false,
   faceRepResult,
   faceHandRepResult,
   repPulse,
@@ -121,6 +123,17 @@ export function FaceTrainingOverlays({
   const isFaceHand = analysisKind === 'face_hand';
   const barBottomOffset = insets.bottom + FOOTER_RESERVE;
   const dimmed = !faceDetected;
+
+  const calibrationBanner =
+    showCalibrationBanner && !showFaceLostBanner ? (
+      <View style={[styles.calibrationBanner, { top: insets.top + 56 }]}>
+        <Text style={styles.calibrationText}>
+          {locale === 'tr'
+            ? 'Kalibre ediliyor… Nötr yüzle bekleyin'
+            : 'Calibrating… hold a neutral face'}
+        </Text>
+      </View>
+    ) : null;
 
   const showFaceComplete = isFace && (faceRepResult?.isComplete || repCompletionLatched);
   if (showFaceComplete) {
@@ -155,6 +168,8 @@ export function FaceTrainingOverlays({
             <Text style={styles.loadingText}>{strings.waitingForData}</Text>
           </View>
         )}
+
+        {calibrationBanner}
 
         {showFaceLostBanner && (
           <View style={[styles.faceLostBanner, { top: insets.top + 56 }]}>
@@ -207,6 +222,8 @@ export function FaceTrainingOverlays({
             <Text style={styles.loadingText}>{strings.waitingForData}</Text>
           </View>
         )}
+
+        {calibrationBanner}
 
         {showFaceLostBanner && (
           <View style={[styles.faceLostBanner, { top: insets.top + 56 }]}>
@@ -288,6 +305,22 @@ const styles = StyleSheet.create({
   faceLostText: {
     color: '#1a1a1a',
     fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  calibrationBanner: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    zIndex: 26,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: 'rgba(59,130,246,0.88)',
+  },
+  calibrationText: {
+    color: '#fff',
+    fontSize: 13,
     fontWeight: '600',
     textAlign: 'center',
   },
