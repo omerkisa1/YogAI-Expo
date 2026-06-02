@@ -215,33 +215,29 @@ function metricsToBlendshapes(
   map.set('jawOpen', deadZone(jawOpen, 0.05));
 
   const smileRaw = metrics.smilingProbability;
-  const smile = cal
-    ? normalize(smileRaw, 0.38, 0.88)
-    : clamp01((smileRaw - 0.38) / 0.5);
-  map.set('mouthSmileLeft', deadZone(smile, 0.1));
-  map.set('mouthSmileRight', deadZone(smile, 0.1));
-  map.set('mouthDimpleLeft', deadZone(smile, 0.1));
-  map.set('mouthDimpleRight', deadZone(smile, 0.1));
+  const smileNorm = cal
+    ? normalize(smileRaw, 0.45, 0.92)
+    : clamp01((smileRaw - 0.45) / 0.47);
+  const smile = clamp01(smileNorm * smileNorm);
+  map.set('mouthSmileLeft', deadZone(smile, 0.05));
+  map.set('mouthSmileRight', deadZone(smile, 0.05));
+  map.set('mouthDimpleLeft', deadZone(smile, 0.05));
+  map.set('mouthDimpleRight', deadZone(smile, 0.05));
 
-  const widthShrink = cal ? baseline.mouthWidthRatio - metrics.mouthWidthRatio : 0;
-  const puckerFromWidth = cal ? normalize(widthShrink, 0.015, 0.1) : 0;
-  const puckerFromLip = cal
-    ? normalize(metrics.upperLipRaiseRatio, baseline.upperLipRaiseRatio * 1.05, baseline.upperLipRaiseRatio + 0.035)
-    : clamp01(metrics.lipPuckerRatio * 1.2);
-  const pucker = cal ? clamp01(Math.max(puckerFromWidth, puckerFromLip * 0.85)) : clamp01(metrics.lipPuckerRatio * 1.2);
-  const puckerCorrected = jawOpen > 0.3 ? pucker * 0.2 : pucker;
-  map.set('mouthPucker', deadZone(puckerCorrected, 0.08));
+  const puckerSignal = cal
+    ? normalize(1 - metrics.mouthWidthRatio, 1 - baseline.mouthWidthRatio, (1 - baseline.mouthWidthRatio) + 0.08)
+    : clamp01((0.38 - metrics.mouthWidthRatio) / 0.10);
+  const puckerCorrected = jawOpen > 0.25 ? puckerSignal * 0.1 : puckerSignal;
+  map.set('mouthPucker', deadZone(puckerCorrected, 0.03));
 
-  const leftEyeSquint = cal
-    ? normalize(1 - metrics.leftEyeOpenProbability, 0.35, 0.78)
-    : clamp01((1 - metrics.leftEyeOpenProbability - 0.35) / 0.43);
-  const rightEyeSquint = cal
-    ? normalize(1 - metrics.rightEyeOpenProbability, 0.35, 0.78)
-    : clamp01((1 - metrics.rightEyeOpenProbability - 0.35) / 0.43);
-  map.set('eyeSquintLeft', deadZone(leftEyeSquint, 0.05));
-  map.set('eyeSquintRight', deadZone(rightEyeSquint, 0.05));
-  map.set('eyeBlinkLeft', deadZone(leftEyeSquint, 0.05));
-  map.set('eyeBlinkRight', deadZone(rightEyeSquint, 0.05));
+  const leftEyeClosed = 1 - metrics.leftEyeOpenProbability;
+  const rightEyeClosed = 1 - metrics.rightEyeOpenProbability;
+  const leftSquint = clamp01((leftEyeClosed - 0.62) / 0.33);
+  const rightSquint = clamp01((rightEyeClosed - 0.62) / 0.33);
+  map.set('eyeSquintLeft', deadZone(leftSquint, 0.03));
+  map.set('eyeSquintRight', deadZone(rightSquint, 0.03));
+  map.set('eyeBlinkLeft', deadZone(leftSquint, 0.03));
+  map.set('eyeBlinkRight', deadZone(rightSquint, 0.03));
   map.set('eyeWideLeft', clamp01(metrics.leftEyeOpenProbability));
   map.set('eyeWideRight', clamp01(metrics.rightEyeOpenProbability));
 
@@ -258,31 +254,37 @@ function metricsToBlendshapes(
   map.set('browDownLeft', deadZone(browDown, 0.05));
   map.set('browDownRight', deadZone(browDown, 0.05));
 
-  const jawRight = clamp01(Math.max(0, metrics.headYaw / 20));
-  const jawLeft = clamp01(Math.max(0, -metrics.headYaw / 20));
-  map.set('jawRight', deadZone(jawRight, 0.03));
-  map.set('jawLeft', deadZone(jawLeft, 0.03));
+  const yaw = metrics.headYaw;
+  const jawRight = clamp01(Math.max(0, -yaw) / 15);
+  const jawLeft = clamp01(Math.max(0, yaw) / 15);
+  map.set('jawRight', deadZone(jawRight, 0.02));
+  map.set('jawLeft', deadZone(jawLeft, 0.02));
 
-  const mouthFunnel = cal
-    ? normalize(metrics.mouthOpenRatio, baseline.mouthOpenRatio + 0.03, baseline.mouthOpenRatio + 0.08)
-    : clamp01(metrics.mouthOpenRatio * 8);
-  const funnelCorrected = jawOpen > 0.4 ? 0 : mouthFunnel;
-  const funnelWithPucker = Math.max(funnelCorrected, pucker * 0.5);
-  map.set('mouthFunnel', deadZone(funnelWithPucker, 0.05));
+  const mouthOpenSmall = cal
+    ? normalize(metrics.mouthOpenRatio, baseline.mouthOpenRatio + 0.01, baseline.mouthOpenRatio + 0.06)
+    : clamp01(metrics.mouthOpenRatio * 10);
+  const mouthNarrow = cal
+    ? normalize(1 - metrics.mouthWidthRatio, 1 - baseline.mouthWidthRatio, (1 - baseline.mouthWidthRatio) + 0.1)
+    : 0;
+  const funnel = clamp01((mouthOpenSmall + mouthNarrow) / 2);
+  const funnelCorrected = jawOpen > 0.35 ? 0 : funnel;
+  map.set('mouthFunnel', deadZone(funnelCorrected, 0.03));
 
-  const upperLipRaise = cal
-    ? normalize(metrics.upperLipRaiseRatio, baseline.upperLipRaiseRatio * 1.08, baseline.upperLipRaiseRatio + 0.035)
-    : clamp01(metrics.upperLipRaiseRatio * 15);
-  map.set('mouthShrugUpper', deadZone(upperLipRaise, 0.05));
-  map.set('mouthUpperUpLeft', deadZone(upperLipRaise, 0.05));
-  map.set('mouthUpperUpRight', deadZone(upperLipRaise, 0.05));
+  const upperLipSignal = clamp01(
+    (metrics.smilingProbability * 0.4) +
+    (metrics.mouthOpenRatio > 0.02 && metrics.mouthOpenRatio < 0.08 ? metrics.mouthOpenRatio * 5 : 0)
+  );
+  const upperLipCorrected = jawOpen > 0.25 ? 0 : upperLipSignal;
+  map.set('mouthShrugUpper', deadZone(upperLipCorrected, 0.03));
+  map.set('mouthUpperUpLeft', deadZone(upperLipCorrected, 0.03));
+  map.set('mouthUpperUpRight', deadZone(upperLipCorrected, 0.03));
 
-  const frown = cal
-    ? normalize(-metrics.mouthCornerYDelta, 0, 0.03)
-    : clamp01(-metrics.mouthCornerYDelta * 30);
-  const frownCorrected = smile > 0.2 ? 0 : frown;
-  map.set('mouthFrownLeft', deadZone(frownCorrected, 0.05));
-  map.set('mouthFrownRight', deadZone(frownCorrected, 0.05));
+  const frownSignal = cal
+    ? normalize(-metrics.mouthCornerYDelta, 0.005, 0.035)
+    : clamp01((0.04 - metrics.smilingProbability) / 0.04);
+  const frownCorrected = smile > 0.1 ? 0 : frownSignal;
+  map.set('mouthFrownLeft', deadZone(frownCorrected, 0.03));
+  map.set('mouthFrownRight', deadZone(frownCorrected, 0.03));
 
   const noseWrinkle = cal
     ? normalize(baseline.noseWrinkleRatio - metrics.noseWrinkleRatio, 0, baseline.noseWrinkleRatio * 0.15)
@@ -290,20 +292,20 @@ function metricsToBlendshapes(
   map.set('noseSneerLeft', deadZone(noseWrinkle, 0.05));
   map.set('noseSneerRight', deadZone(noseWrinkle, 0.05));
 
-  const lipRollDelta = cal ? metrics.upperLipRaiseRatio - baseline.upperLipRaiseRatio : 0;
-  const mouthRollUpper = cal ? normalize(lipRollDelta, 0.004, 0.028) : 0;
-  const rollCorrected = jawOpen > 0.3 ? 0 : mouthRollUpper;
-  map.set('mouthRollUpper', deadZone(rollCorrected, 0.05));
-  map.set('mouthRollLower', deadZone(rollCorrected * 0.8, 0.05));
+  const rollSignal = puckerCorrected * 0.6 + (jawOpen > 0.05 && jawOpen < 0.2 ? jawOpen * 2 : 0);
+  map.set('mouthRollUpper', deadZone(clamp01(rollSignal), 0.03));
+  map.set('mouthRollLower', deadZone(clamp01(rollSignal * 0.8), 0.03));
 
-  const chinRaise = clamp01(Math.abs(metrics.headPitch) / 12);
-  const chinCorrected = puckerCorrected > 0.3 ? clamp01(chinRaise * 1.25 + puckerCorrected * 0.35) : chinRaise;
-  map.set('chinRaiser', deadZone(clamp01(chinCorrected), 0.05));
+  const pitch = metrics.headPitch;
+  const chinUp = clamp01(Math.max(0, -pitch - 3) / 9);
+  const chinWithPucker = puckerCorrected > 0.2 ? chinUp * 1.3 : chinUp;
+  map.set('chinRaiser', deadZone(clamp01(chinWithPucker), 0.03));
 
-  const cheekPuff = cal
-    ? normalize(metrics.mouthWidthRatio, baseline.mouthWidthRatio * 1.05, baseline.mouthWidthRatio * 1.25)
+  const cheekSignal = cal
+    ? normalize(metrics.mouthWidthRatio, baseline.mouthWidthRatio * 1.02, baseline.mouthWidthRatio * 1.22)
     : 0;
-  map.set('cheekPuff', deadZone(cheekPuff, 0.05));
+  const cheekWithJaw = jawOpen < 0.1 ? cheekSignal * 0.8 : cheekSignal * 0.2;
+  map.set('cheekPuff', deadZone(clamp01(cheekWithJaw), 0.03));
 
   map.set('mouthPressLeft', clamp01(smile * 0.2 + jawOpen * 0.15));
   map.set('mouthPressRight', clamp01(smile * 0.2 + jawOpen * 0.15));

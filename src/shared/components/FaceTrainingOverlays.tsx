@@ -205,7 +205,7 @@ export function FaceTrainingOverlays({
             />
             {__DEV__ && (
               <Text style={styles.devValue}>
-                {faceRepResult.currentValue.toFixed(3)}
+                raw: {faceRepResult.currentValue.toFixed(3)} | thresh: {faceEnterThreshold.toFixed(2)}
               </Text>
             )}
           </View>
