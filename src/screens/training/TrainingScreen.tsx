@@ -676,7 +676,7 @@ const TrainingScreen = ({ route, navigation }: Props) => {
                           ? frameProcessor
                           : undefined
                     }
-                    pixelFormat="yuv"
+                    pixelFormat={isFaceMode && Platform.OS === 'ios' ? 'rgb' : 'yuv'}
                     videoStabilizationMode="off"
                     outputOrientation="device"
                     resizeMode={devResizeMode}

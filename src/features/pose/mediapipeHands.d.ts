@@ -4,4 +4,13 @@ import type { HandDetectionPayload } from './useHandLandmarker';
 
 export declare const HAND_LANDMARKER_SUPPORTED: boolean;
 
-export declare function detectHandsInFrame(frame: Frame): HandDetectionPayload;
+export type HandDetectionWorkletResult = HandDetectionPayload & {
+  handReady: boolean;
+  poseReady: boolean;
+  pluginReturnedNull: boolean;
+  nativeHandCount?: number;
+  frameOrientation?: string;
+  detectMode?: string;
+};
+
+export declare function detectHandsInFrame(frame: Frame): HandDetectionWorkletResult;

@@ -15,6 +15,12 @@ export interface HandDetectionPayload {
 export interface HandFrame extends HandDetectionPayload {
   frameWidth: number;
   frameHeight: number;
+  handReady?: boolean;
+  poseReady?: boolean;
+  pluginReturnedNull?: boolean;
+  nativeHandCount?: number;
+  frameOrientation?: string;
+  detectMode?: string;
 }
 
 export interface UseHandLandmarkerReturn {

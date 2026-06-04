@@ -16,8 +16,8 @@ import {
 } from './useFaceLandmarker';
 import { handLandmarkerDetectionCallback } from './useHandLandmarker';
 
-const FACE_VISION_FPS = 15;
-const HAND_VISION_FPS = 8;
+const FACE_VISION_FPS = 12;
+const HAND_VISION_FPS = 10;
 
 export type UseCombinedFaceHandVisionPipelineOptions = {
   active: boolean;
@@ -54,6 +54,12 @@ export function useCombinedFaceHandVisionPipeline({
       timestamp: number,
       frameWidth: number,
       frameHeight: number,
+      handReady: boolean,
+      poseReady: boolean,
+      pluginReturnedNull: boolean,
+      nativeHandCount: number,
+      frameOrientation: string,
+      detectMode: string,
     ) => {
       if (!activeRef.current || !enableHandsRef.current) return;
       handLandmarkerDetectionCallback({
@@ -61,6 +67,12 @@ export function useCombinedFaceHandVisionPipeline({
         timestamp,
         frameWidth,
         frameHeight,
+        handReady,
+        poseReady,
+        pluginReturnedNull,
+        nativeHandCount,
+        frameOrientation,
+        detectMode,
       });
     },
     [],
@@ -85,16 +97,19 @@ export function useCombinedFaceHandVisionPipeline({
       runAtTargetFps(HAND_VISION_FPS, () => {
         'worklet';
         if (!enableHandsRef.current) return;
-        runAsync(frame, () => {
-          'worklet';
-          const handsFrame = detectHandsInFrame(frame);
-          onHandsDetected(
-            handsFrame.hands,
-            handsFrame.timestamp,
-            frame.width,
-            frame.height,
-          );
-        });
+        const handsFrame = detectHandsInFrame(frame);
+        onHandsDetected(
+          handsFrame.hands,
+          handsFrame.timestamp,
+          frame.width,
+          frame.height,
+          handsFrame.handReady,
+          handsFrame.poseReady,
+          handsFrame.pluginReturnedNull,
+          handsFrame.nativeHandCount ?? 0,
+          handsFrame.frameOrientation ?? frame.orientation,
+          handsFrame.detectMode ?? '',
+        );
       });
     },
     [detectFaces, onFacesDetected, onHandsDetected],

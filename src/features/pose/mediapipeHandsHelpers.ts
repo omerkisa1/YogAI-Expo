@@ -7,9 +7,18 @@ export type PosePluginHand = {
   handedness: 'Left' | 'Right' | '';
 };
 
+export type PosePluginMeta = {
+  handReady?: boolean;
+  poseReady?: boolean;
+  nativeHandCount?: number;
+  orientation?: string;
+  detectMode?: string;
+};
+
 export type PosePluginResult = {
   pose?: unknown[];
   hands?: PosePluginHand[];
+  meta?: PosePluginMeta;
 };
 
 export function mirrorHandedness(cat: string): 'Left' | 'Right' {

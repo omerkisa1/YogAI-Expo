@@ -168,15 +168,12 @@ export function useFaceYogaPipeline({
     const isMirrored = cameraFacing === 'front';
 
     const hand = handFrame?.hands?.[0];
+    const lm = hand?.landmarks;
     const normalizedHand =
-      hand && hand.landmarks.length >= 21
-        ? normalizeHandLandmarks(
-            hand.landmarks,
-            frameWidth,
-            frameHeight,
-            true,
-            isMirrored,
-          )
+      lm && lm.length >= 21
+        ? lm.every(p => p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1)
+          ? lm.map(p => ({ x: p.x, y: p.y, z: p.z ?? 0 }))
+          : normalizeHandLandmarks(lm, frameWidth, frameHeight, true, isMirrored)
         : null;
 
     const faceBBox =
@@ -200,6 +197,13 @@ export function useFaceYogaPipeline({
         (globalThis as { __fhLastLog?: number }).__fhLastLog = now;
         console.log('[FH_DEBUG]', {
           handPlugin: HAND_LANDMARKER_SUPPORTED,
+          handReady: handFrame?.handReady ?? false,
+          poseReady: handFrame?.poseReady ?? false,
+          pluginReturnedNull: handFrame?.pluginReturnedNull ?? true,
+          nativeHandCount: handFrame?.nativeHandCount ?? 0,
+          detectMode: handFrame?.detectMode ?? '',
+          frameOrientation: handFrame?.frameOrientation ?? '?',
+          rawHandCount: handFrame?.hands?.length ?? 0,
           handDetected: (handFrame?.hands?.length ?? 0) > 0,
           handLandmarkCount: hand?.landmarks?.length ?? 0,
           faceBBox: faceBBox ? 'YES' : 'NO',
