@@ -331,6 +331,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
     repTarget: selectedPose?.rep_target,
     active: isAnalyzing && isFaceMode,
     cameraReady,
+    cameraFacing,
   });
 
   const screen = Dimensions.get('window');

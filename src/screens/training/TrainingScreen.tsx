@@ -199,6 +199,7 @@ const TrainingScreen = ({ route, navigation }: Props) => {
     repTarget: repTarget || undefined,
     active: screenState === 'posing' && isFaceMode,
     cameraReady,
+    cameraFacing,
   });
 
   const screen = Dimensions.get('window');

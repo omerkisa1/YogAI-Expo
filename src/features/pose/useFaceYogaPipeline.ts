@@ -6,14 +6,19 @@ import {
   type FaceRepResult,
 } from '@/lib/faceRepCounter';
 import {
-  createFaceHandRepCounter,
-  FACE_HAND_EXERCISE_CONFIGS,
-  type FaceHandRepResult,
-} from '@/lib/faceHandRepCounter';
+  getFaceBBoxNormalized,
+  normalizeHandLandmarks,
+} from '@/lib/faceHandCoordinates';
+import {
+  createMobileFaceHandCounter,
+  MOBILE_FACE_HAND_CONFIGS,
+  toFaceHandUiResult,
+  type FaceHandUiResult,
+} from '@/lib/faceHandRepCounterMobile';
 import type { ExerciseAnalysisKind } from '@/lib/poseDomain';
 import { resetFaceBaseline, isBaselineCalibrated } from '@/lib/faceMeshMapper';
 import { useFaceLandmarker } from '@/features/pose/useFaceLandmarker';
-import { useHandLandmarker } from '@/features/pose/useHandLandmarker';
+import { HAND_LANDMARKER_SUPPORTED, useHandLandmarker } from '@/features/pose/useHandLandmarker';
 import { useStableFaceDetected } from '@/features/pose/useStableFaceDetected';
 
 type Params = {
@@ -22,6 +27,7 @@ type Params = {
   repTarget?: number;
   active: boolean;
   cameraReady: boolean;
+  cameraFacing?: 'front' | 'back';
 };
 
 export function useFaceYogaPipeline({
@@ -30,6 +36,7 @@ export function useFaceYogaPipeline({
   repTarget,
   active,
   cameraReady,
+  cameraFacing = 'front',
 }: Params) {
   const isFace = analysisKind === 'face';
   const isFaceHand = analysisKind === 'face_hand';
@@ -53,9 +60,9 @@ export function useFaceYogaPipeline({
   } = handLandmarker;
 
   const faceRepCounterRef = useRef<ReturnType<typeof createFaceRepCounter>>(null);
-  const faceHandRepCounterRef = useRef<ReturnType<typeof createFaceHandRepCounter>>(null);
+  const mobileFaceHandCounterRef = useRef<ReturnType<typeof createMobileFaceHandCounter>>(null);
   const [faceRepResult, setFaceRepResult] = useState<FaceRepResult | null>(null);
-  const [faceHandRepResult, setFaceHandRepResult] = useState<FaceHandRepResult | null>(null);
+  const [faceHandRepResult, setFaceHandRepResult] = useState<FaceHandUiResult | null>(null);
   const [repPulse, setRepPulse] = useState(false);
   const [handRepPulse, setHandRepPulse] = useState(false);
   const prevRepsRef = useRef(0);
@@ -74,7 +81,7 @@ export function useFaceYogaPipeline({
 
   useEffect(() => {
     faceRepCounterRef.current = null;
-    faceHandRepCounterRef.current = null;
+    mobileFaceHandCounterRef.current = null;
     setFaceRepResult(null);
     setFaceHandRepResult(null);
     prevRepsRef.current = 0;
@@ -122,12 +129,16 @@ export function useFaceYogaPipeline({
         setFaceRepResult(counter.update(new Map()));
       }
     }
-    if (isFaceHand && FACE_HAND_EXERCISE_CONFIGS[poseId] && !faceHandRepCounterRef.current) {
-      const counter = createFaceHandRepCounter(poseId, resolvedRepTarget);
+    if (isFaceHand && MOBILE_FACE_HAND_CONFIGS[poseId] && !mobileFaceHandCounterRef.current) {
+      const counter = createMobileFaceHandCounter(poseId, resolvedRepTarget);
       if (counter) {
-        faceHandRepCounterRef.current = counter;
+        mobileFaceHandCounterRef.current = counter;
+        const cfg = counter.getConfig();
         setFaceHandRepResult(
-          counter.update([], [], new Map()),
+          toFaceHandUiResult(
+            counter.update(null, null, new Map()),
+            cfg.barLabelKey,
+          ),
         );
       }
     }
@@ -150,19 +161,55 @@ export function useFaceYogaPipeline({
   useEffect(() => {
     if (!active || !isFaceHand) return;
     if (!faceFrame?.faceDetected) return;
-    if (!faceHandRepCounterRef.current) return;
+    if (!mobileFaceHandCounterRef.current) return;
 
-    const handsPayload = (handFrame?.hands ?? []).map(h => ({
-      landmarks: h.landmarks,
-    }));
-    const r = faceHandRepCounterRef.current.update(
-      handsPayload,
-      faceFrame.faceLandmarks ?? [],
+    const frameWidth = handFrame?.frameWidth || faceFrame.frameWidth;
+    const frameHeight = handFrame?.frameHeight || faceFrame.frameHeight;
+    const isMirrored = cameraFacing === 'front';
+
+    const hand = handFrame?.hands?.[0];
+    const normalizedHand =
+      hand && hand.landmarks.length >= 21
+        ? normalizeHandLandmarks(
+            hand.landmarks,
+            frameWidth,
+            frameHeight,
+            true,
+            isMirrored,
+          )
+        : null;
+
+    const faceBBox =
+      faceFrame.faceBoundingBox && frameWidth > 0 && frameHeight > 0
+        ? getFaceBBoxNormalized(faceFrame.faceBoundingBox, frameWidth, frameHeight)
+        : null;
+
+    const mobileResult = mobileFaceHandCounterRef.current.update(
+      normalizedHand,
+      faceBBox,
       faceFrame.blendshapes,
     );
-    setFaceHandRepResult(r);
+    const cfg = mobileFaceHandCounterRef.current.getConfig();
+    setFaceHandRepResult(toFaceHandUiResult(mobileResult, cfg.barLabelKey));
     setIsCalibrating(!isBaselineCalibrated());
-  }, [active, isFaceHand, faceFrame, handFrame]);
+
+    if (__DEV__) {
+      const now = Date.now();
+      const lastLog = (globalThis as { __fhLastLog?: number }).__fhLastLog ?? 0;
+      if (now - lastLog > 800) {
+        (globalThis as { __fhLastLog?: number }).__fhLastLog = now;
+        console.log('[FH_DEBUG]', {
+          handPlugin: HAND_LANDMARKER_SUPPORTED,
+          handDetected: (handFrame?.hands?.length ?? 0) > 0,
+          handLandmarkCount: hand?.landmarks?.length ?? 0,
+          faceBBox: faceBBox ? 'YES' : 'NO',
+          overlapScore: mobileResult.overlapScore.toFixed(2),
+          feedbackState: mobileResult.feedbackState,
+          reps: mobileResult.reps,
+        });
+      }
+    }
+  }, [active, isFaceHand, faceFrame, handFrame, cameraFacing]);
 
   useEffect(() => {
     if (!faceRepResult) {
@@ -201,9 +248,9 @@ export function useFaceYogaPipeline({
   const repResult = isFace ? faceRepResult : isFaceHand ? faceHandRepResult : null;
   const faceConfig = isFace && poseId ? FACE_EXERCISE_CONFIGS[poseId] : undefined;
   const faceHandConfig =
-    isFaceHand && poseId ? FACE_HAND_EXERCISE_CONFIGS[poseId] : undefined;
+    isFaceHand && poseId ? MOBILE_FACE_HAND_CONFIGS[poseId] : undefined;
   const faceEnterThreshold = faceConfig?.enterThreshold ?? 0.45;
-  const proximityThreshold = faceHandConfig?.proximityThreshold ?? 0.15;
+  const proximityThreshold = faceHandConfig?.overlapBarThreshold ?? 0.45;
 
   const repAccuracy = useCallback((): number => {
     if (!repResult) return 0;
@@ -213,14 +260,14 @@ export function useFaceYogaPipeline({
 
   const resetCounters = useCallback(() => {
     faceRepCounterRef.current?.reset();
-    faceHandRepCounterRef.current?.reset();
+    mobileFaceHandCounterRef.current?.reset();
     setFaceRepResult(null);
     setFaceHandRepResult(null);
   }, []);
 
   const faceDetected = stableFaceDetected || rawFaceDetected;
   const rawFaceDetectedOut = rawFaceDetected;
-  const showCalibrationBanner = active && isFaceMode && faceDetected && isCalibrating;
+  const showCalibrationBanner = active && isFace && faceDetected && isCalibrating;
   const hasRepUi = isFace ? faceRepResult != null : isFaceHand ? faceHandRepResult != null : false;
   const pipelineLoading =
     active &&
@@ -238,6 +285,7 @@ export function useFaceYogaPipeline({
     repResult,
     faceFps: faceFrame?.fps,
     faceFrame,
+    handFrame,
     faceDetected,
     rawFaceDetected: rawFaceDetectedOut,
     showFaceLostBanner,

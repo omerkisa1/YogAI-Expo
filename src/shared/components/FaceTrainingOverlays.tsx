@@ -3,7 +3,7 @@ import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { FaceRepResult } from '@/lib/faceRepCounter';
-import type { FaceHandRepResult } from '@/lib/faceHandRepCounter';
+import type { FaceHandUiResult } from '@/lib/faceHandRepCounterMobile';
 import { getTrainingStrings, tKey, type AppLocale } from '@/lib/i18n';
 import type { ExerciseAnalysisKind } from '@/lib/poseDomain';
 import FaceFeedbackBanner from '@/shared/components/FaceFeedbackBanner';
@@ -19,7 +19,7 @@ type Props = {
   showFaceLostBanner?: boolean;
   showCalibrationBanner?: boolean;
   faceRepResult: FaceRepResult | null;
-  faceHandRepResult: FaceHandRepResult | null;
+  faceHandRepResult: FaceHandUiResult | null;
   repPulse: boolean;
   handRepPulse: boolean;
   faceEnterThreshold: number;
@@ -71,7 +71,7 @@ function RightHudStack({
 }: {
   locale: AppLocale;
   variant: 'face' | 'face_hand';
-  feedbackState: FaceRepResult['feedbackState'] | FaceHandRepResult['feedbackState'];
+  feedbackState: FaceRepResult['feedbackState'] | FaceHandUiResult['feedbackState'];
   feedbackKey: string;
   reps: number;
   target: number;
@@ -253,8 +253,24 @@ export function FaceTrainingOverlays({
             <ExerciseBar
               value={faceHandRepResult.currentProximity}
               enterThreshold={proximityThreshold}
-              label={strings.handProximity}
+              label={tKey(strings, faceHandRepResult.barLabelKey)}
             />
+            {faceHandRepResult.holdProgress > 0 && faceHandRepResult.holdProgress < 1 && (
+              <View style={styles.repCompactTrack}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    { width: `${faceHandRepResult.holdProgress * 100}%` },
+                  ]}
+                />
+              </View>
+            )}
+            {__DEV__ && (
+              <Text style={styles.devValue}>
+                overlap: {faceHandRepResult.overlapScore.toFixed(3)} | reps:{' '}
+                {faceHandRepResult.reps}
+              </Text>
+            )}
           </View>
         </View>
       </>

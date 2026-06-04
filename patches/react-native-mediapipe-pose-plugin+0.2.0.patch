@@ -1,0 +1,86 @@
+diff --git a/node_modules/react-native-mediapipe-pose-plugin/ios/PoseLandmarkerPlugin.swift b/node_modules/react-native-mediapipe-pose-plugin/ios/PoseLandmarkerPlugin.swift
+index cf537e4..a7c191f 100644
+--- a/node_modules/react-native-mediapipe-pose-plugin/ios/PoseLandmarkerPlugin.swift
++++ b/node_modules/react-native-mediapipe-pose-plugin/ios/PoseLandmarkerPlugin.swift
+@@ -170,52 +170,32 @@ public class PoseLandmarkerPlugin: FrameProcessorPlugin {
+     /// - Parameters:
+     ///   - frame: The camera frame (CMSampleBuffer + metadata)
+     ///   - arguments: Optional JS arguments (unused)
+-    /// - Returns: Dict with "pose" and "hands" keys, or nil if pose detection fails
++    /// - Returns: Dict with "pose" and "hands" keys; hands may be returned without pose
+     public override func callback(_ frame: Frame, withArguments arguments: [AnyHashable: Any]?) -> Any? {
+-        guard let landmarker = poseLandmarker else { return nil }
+-
+-        // Wrap the raw CMSampleBuffer in a MediaPipe image.
+-        // No orientation hint — the TypeScript layer handles coordinate rotation.
+         guard let image = try? MPImage(sampleBuffer: frame.buffer) else { return nil }
+ 
+-        let timestampMs = Int(frame.timestamp)
+-
+-        // ── Pose detection ─────────────────────────────────────────────────
+-        // Run synchronous pose detection (.video mode).
+-        // Returns immediately with results — no delegate callback needed.
+-        guard let poseResult = try? landmarker.detect(
+-            videoFrame: image,
+-            timestampInMilliseconds: timestampMs
+-        ) else { return nil }
++        let timestampMs = Int(frame.timestamp / 1_000_000)
+ 
+-        // Extract the first (and only) person's landmarks.
+-        // result.landmarks is [[NormalizedLandmark]] — one array per detected person.
+-        guard let poseLandmarks = poseResult.landmarks.first else { return nil }
+-
+-        // Convert pose to JS-compatible array of dictionaries.
+-        // Each landmark has x, y (normalized 0-1), z (depth), and visibility (0-1).
+         var poseOutput: [[String: Any]] = []
+-        for lm in poseLandmarks {
+-            var dict: [String: Any] = [
+-                "x": lm.x,
+-                "y": lm.y,
+-                "z": lm.z
+-            ]
+-            if let v = lm.visibility {
+-                dict["visibility"] = v.floatValue
++        if let landmarker = poseLandmarker,
++           let poseResult = try? landmarker.detect(
++               videoFrame: image,
++               timestampInMilliseconds: timestampMs
++           ),
++           let poseLandmarks = poseResult.landmarks.first {
++            for lm in poseLandmarks {
++                var dict: [String: Any] = [
++                    "x": lm.x,
++                    "y": lm.y,
++                    "z": lm.z
++                ]
++                if let v = lm.visibility {
++                    dict["visibility"] = v.floatValue
++                }
++                poseOutput.append(dict)
+             }
+-            poseOutput.append(dict)
+         }
+ 
+-        // ── Hand detection ─────────────────────────────────────────────────
+-        // Run hand detection on the SAME frame with the SAME timestamp. If
+-        // it fails or returns no hands, we still return the pose result with
+-        // an empty hands array — gesture detection just won't fire that frame.
+-        //
+-        // Per-hand return shape is { landmarks: [...21], handedness: "Left"|"Right" }
+-        // — the handedness label is needed by the JS detector's palm-normal
+-        // sign check (the cross product orientation flips between hands, so
+-        // we can't tell palm from back without knowing which hand it is).
+         var handsOutput: [[String: Any]] = []
+         if let handLandmarker = handLandmarker,
+            let handResult = try? handLandmarker.detect(
+@@ -250,6 +230,10 @@ public class PoseLandmarkerPlugin: FrameProcessorPlugin {
+             }
+         }
+ 
++        if handsOutput.isEmpty && poseOutput.isEmpty {
++            return nil
++        }
++
+         return [
+             "pose": poseOutput,
+             "hands": handsOutput,

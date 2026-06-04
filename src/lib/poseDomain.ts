@@ -1,5 +1,5 @@
 import { FACE_EXERCISE_CONFIGS } from '@/lib/faceRepCounter';
-import { FACE_HAND_EXERCISE_CONFIGS } from '@/lib/faceHandRepCounter';
+import { MOBILE_FACE_HAND_CONFIGS } from '@/lib/faceHandRepCounterMobile';
 import type { Pose } from '@/shared/types/pose';
 
 export type PlanDomain = 'body' | 'face';
@@ -12,7 +12,7 @@ export function resolveExerciseAnalysisKind(
   poseId: string,
   catalogKind?: Pose['analysis_kind'],
 ): ExerciseAnalysisKind {
-  if (FACE_HAND_EXERCISE_CONFIGS[poseId]) return 'face_hand';
+  if (MOBILE_FACE_HAND_CONFIGS[poseId]) return 'face_hand';
   if (FACE_EXERCISE_CONFIGS[poseId]) return 'face';
   if (catalogKind === 'face' || catalogKind === 'face_hand') return catalogKind;
   return 'body';

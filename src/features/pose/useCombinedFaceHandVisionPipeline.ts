@@ -4,16 +4,20 @@ import {
   runAtTargetFps,
   useFrameProcessor,
   type CameraPosition,
-  type Frame,
 } from 'react-native-vision-camera';
 import { useFaceDetector, type Face } from 'react-native-vision-camera-face-detector';
 import { useRunOnJS } from 'react-native-worklets-core';
 
 import { detectHandsInFrame } from './mediapipeHands';
-import { faceLandmarkerDetectionCallback, getFaceDetectionOptions } from './useFaceLandmarker';
+import {
+  faceLandmarkerDetectionCallback,
+  getFaceDetectionOptions,
+  type FaceFrameMeta,
+} from './useFaceLandmarker';
 import { handLandmarkerDetectionCallback } from './useHandLandmarker';
 
-const VISION_FPS = 15;
+const FACE_VISION_FPS = 15;
+const HAND_VISION_FPS = 8;
 
 export type UseCombinedFaceHandVisionPipelineOptions = {
   active: boolean;
@@ -39,29 +43,57 @@ export function useCombinedFaceHandVisionPipeline({
 
   useEffect(() => () => stopListeners(), [stopListeners]);
 
-  const onFacesDetected = useRunOnJS((faces: Face[], timestamp: number) => {
+  const onFacesDetected = useRunOnJS((faces: Face[], meta: FaceFrameMeta) => {
     if (!activeRef.current) return;
-    faceLandmarkerDetectionCallback(faces, { timestamp } as Frame);
+    faceLandmarkerDetectionCallback(faces, meta);
   }, []);
 
-  const onHandsDetected = useRunOnJS((handsFrame: ReturnType<typeof detectHandsInFrame>) => {
-    if (!activeRef.current || !enableHandsRef.current) return;
-    handLandmarkerDetectionCallback(handsFrame);
-  }, []);
+  const onHandsDetected = useRunOnJS(
+    (
+      hands: ReturnType<typeof detectHandsInFrame>['hands'],
+      timestamp: number,
+      frameWidth: number,
+      frameHeight: number,
+    ) => {
+      if (!activeRef.current || !enableHandsRef.current) return;
+      handLandmarkerDetectionCallback({
+        hands,
+        timestamp,
+        frameWidth,
+        frameHeight,
+      });
+    },
+    [],
+  );
 
   const frameProcessor = useFrameProcessor(
     frame => {
       'worklet';
-      runAtTargetFps(VISION_FPS, () => {
+      runAtTargetFps(FACE_VISION_FPS, () => {
         'worklet';
         runAsync(frame, () => {
           'worklet';
           const faces = detectFaces(frame);
-          onFacesDetected(faces, frame.timestamp);
-          if (enableHandsRef.current) {
-            const handsFrame = detectHandsInFrame(frame);
-            onHandsDetected(handsFrame);
-          }
+          onFacesDetected(faces, {
+            timestamp: frame.timestamp,
+            width: frame.width,
+            height: frame.height,
+          });
+        });
+      });
+
+      runAtTargetFps(HAND_VISION_FPS, () => {
+        'worklet';
+        if (!enableHandsRef.current) return;
+        runAsync(frame, () => {
+          'worklet';
+          const handsFrame = detectHandsInFrame(frame);
+          onHandsDetected(
+            handsFrame.hands,
+            handsFrame.timestamp,
+            frame.width,
+            frame.height,
+          );
         });
       });
     },

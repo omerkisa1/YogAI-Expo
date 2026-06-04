@@ -1,6 +1,6 @@
 import type { AnalyzablePoseMeta } from '@/features/pose/analyzablePoseTypes';
 import { FACE_EXERCISE_CONFIGS } from '@/lib/faceRepCounter';
-import { FACE_HAND_EXERCISE_CONFIGS } from '@/lib/faceHandRepCounter';
+import { MOBILE_FACE_HAND_CONFIGS } from '@/lib/faceHandRepCounterMobile';
 
 export const SHOW_TEST_POSES =
   __DEV__ || process.env.EXPO_PUBLIC_SHOW_TEST_POSES === '1';
@@ -21,7 +21,7 @@ export function filterPosesWithRepConfig<T extends Pick<AnalyzablePoseMeta, 'pos
       return p.pose_id in FACE_EXERCISE_CONFIGS;
     }
     if (p.analysis_kind === 'face_hand') {
-      return p.pose_id in FACE_HAND_EXERCISE_CONFIGS;
+      return p.pose_id in MOBILE_FACE_HAND_CONFIGS;
     }
     return true;
   });

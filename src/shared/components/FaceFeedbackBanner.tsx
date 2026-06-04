@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import type { FaceFeedbackState } from '@/lib/faceRepCounter';
 import type { FaceHandFeedbackState } from '@/lib/faceHandRepCounter';
+import type { FaceHandUiFeedbackState } from '@/lib/faceHandRepCounterMobile';
 import { FEEDBACK_MESSAGES, HAND_FEEDBACK_MESSAGES } from '@/lib/faceFeedbackMessages';
 import type { AppLocale } from '@/lib/i18n';
 
@@ -11,7 +12,7 @@ export type FaceBannerVariant = 'face' | 'face_hand';
 type Props = {
   locale: AppLocale;
   variant?: FaceBannerVariant;
-  feedbackState: FaceFeedbackState | FaceHandFeedbackState;
+  feedbackState: FaceFeedbackState | FaceHandFeedbackState | FaceHandUiFeedbackState;
   feedbackKey: string;
 };
 

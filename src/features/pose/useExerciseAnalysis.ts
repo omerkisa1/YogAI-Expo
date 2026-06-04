@@ -11,6 +11,7 @@ type Params = {
   repTarget?: number;
   active: boolean;
   cameraReady: boolean;
+  cameraFacing?: 'front' | 'back';
 };
 
 export function useExerciseAnalysis({
@@ -19,6 +20,7 @@ export function useExerciseAnalysis({
   repTarget,
   active,
   cameraReady,
+  cameraFacing = 'front',
 }: Params) {
   const pipeline = useFaceYogaPipeline({
     poseId,
@@ -26,6 +28,7 @@ export function useExerciseAnalysis({
     repTarget,
     active,
     cameraReady,
+    cameraFacing,
   });
 
   return {

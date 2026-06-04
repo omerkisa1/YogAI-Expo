@@ -4,7 +4,6 @@ import {
   runAtTargetFps,
   useFrameProcessor,
   type CameraPosition,
-  type Frame,
 } from 'react-native-vision-camera';
 import { useFaceDetector, type Face } from 'react-native-vision-camera-face-detector';
 import { useRunOnJS } from 'react-native-worklets-core';
@@ -30,10 +29,13 @@ export function useFaceVisionPipeline({ active, cameraFacing }: UseFaceVisionPip
 
   useEffect(() => () => stopListeners(), []);
 
-  const onFacesDetected = useRunOnJS((faces: Face[], timestamp: number) => {
-    if (!activeRef.current) return;
-    faceLandmarkerDetectionCallback(faces, { timestamp } as Frame);
-  }, []);
+  const onFacesDetected = useRunOnJS(
+    (faces: Face[], timestamp: number, width: number, height: number) => {
+      if (!activeRef.current) return;
+      faceLandmarkerDetectionCallback(faces, { timestamp, width, height });
+    },
+    [],
+  );
 
   const frameProcessor = useFrameProcessor(
     frame => {
@@ -43,7 +45,7 @@ export function useFaceVisionPipeline({ active, cameraFacing }: UseFaceVisionPip
         runAsync(frame, () => {
           'worklet';
           const faces = detectFaces(frame);
-          onFacesDetected(faces, frame.timestamp);
+          onFacesDetected(faces, frame.timestamp, frame.width, frame.height);
         });
       });
     },

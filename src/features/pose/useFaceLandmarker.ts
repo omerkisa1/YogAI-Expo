@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Frame } from 'react-native-vision-camera';
 import type { CameraPosition } from 'react-native-vision-camera';
 import type { Face, FrameFaceDetectionOptions } from 'react-native-vision-camera-face-detector';
 
@@ -9,12 +8,18 @@ import {
   type FaceLandmark,
 } from '@/lib/faceMeshMapper';
 
-type FaceDetectionCallback = (faces: Face[], frame: Frame) => void;
+export type FaceFrameMeta = {
+  timestamp: number;
+  width: number;
+  height: number;
+};
+
+type FaceDetectionCallback = (faces: Face[], meta: FaceFrameMeta) => void;
 
 let activeFaceCallback: FaceDetectionCallback | null = null;
 
-export const faceLandmarkerDetectionCallback: FaceDetectionCallback = (faces, frame) => {
-  activeFaceCallback?.(faces, frame);
+export const faceLandmarkerDetectionCallback = (faces: Face[], meta: FaceFrameMeta) => {
+  activeFaceCallback?.(faces, meta);
 };
 
 export const getFaceDetectionOptions = (cameraFacing: CameraPosition): FrameFaceDetectionOptions => ({
@@ -27,9 +32,19 @@ export const getFaceDetectionOptions = (cameraFacing: CameraPosition): FrameFace
   cameraFacing,
 });
 
+export interface FaceBoundingBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface FaceFrame {
   blendshapes: Map<string, number>;
   faceLandmarks?: FaceLandmark[];
+  faceBoundingBox: FaceBoundingBox | null;
+  frameWidth: number;
+  frameHeight: number;
   timestamp: number;
   faceDetected: boolean;
   fps?: number;
@@ -63,18 +78,24 @@ export function useFaceLandmarker(): UseFaceLandmarkerReturn {
   const isLoading = useMemo(() => isRunning && currentFrame == null, [isRunning, currentFrame]);
 
   const handleFacesDetected = useCallback(
-    (faces: Face[], frame: Frame) => {
+    (faces: Face[], meta: FaceFrameMeta) => {
       if (!isRunning) return;
-      const timestamp = typeof frame?.timestamp === 'number' ? frame.timestamp : Date.now();
+      const timestamp = meta.timestamp;
       if (lastTsRef.current > 0) {
-        const dt = (timestamp - lastTsRef.current) / 1000;
+        const dt = (timestamp - lastTsRef.current) / 1_000_000_000;
         if (dt > 0) fpsRef.current = 1 / dt;
       }
       lastTsRef.current = timestamp;
 
+      const frameWidth = Math.max(meta.width, 1);
+      const frameHeight = Math.max(meta.height, 1);
+
       if (!faces || faces.length === 0) {
         setCurrentFrame({
           blendshapes: new Map(),
+          faceBoundingBox: null,
+          frameWidth,
+          frameHeight,
           timestamp,
           faceDetected: false,
           fps: fpsRef.current,
@@ -86,6 +107,9 @@ export function useFaceLandmarker(): UseFaceLandmarkerReturn {
         if (!face) {
           setCurrentFrame({
             blendshapes: new Map(),
+            faceBoundingBox: null,
+            frameWidth,
+            frameHeight,
             timestamp,
             faceDetected: false,
             fps: fpsRef.current,
@@ -93,9 +117,15 @@ export function useFaceLandmarker(): UseFaceLandmarkerReturn {
           return;
         }
 
+        const bounds = face.bounds;
         setCurrentFrame({
           blendshapes: mapMLKitToBlendshapes(face),
           faceLandmarks: buildFaceLandmarksFromMlKit(face),
+          faceBoundingBox: bounds
+            ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
+            : null,
+          frameWidth,
+          frameHeight,
           timestamp,
           faceDetected: true,
           fps: fpsRef.current,

@@ -7,9 +7,14 @@ export interface HandData {
   handedness: 'Left' | 'Right';
 }
 
-export interface HandFrame {
+export interface HandDetectionPayload {
   hands: HandData[];
   timestamp: number;
+}
+
+export interface HandFrame extends HandDetectionPayload {
+  frameWidth: number;
+  frameHeight: number;
 }
 
 export interface UseHandLandmarkerReturn {
