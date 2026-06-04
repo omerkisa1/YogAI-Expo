@@ -171,14 +171,18 @@ export function useFaceYogaPipeline({
     const lm = hand?.landmarks;
     const normalizedHand =
       lm && lm.length >= 21
-        ? lm.every(p => p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1)
-          ? lm.map(p => ({ x: p.x, y: p.y, z: p.z ?? 0 }))
-          : normalizeHandLandmarks(lm, frameWidth, frameHeight, true, isMirrored)
+        ? normalizeHandLandmarks(lm, frameWidth, frameHeight, true, isMirrored)
         : null;
 
     const faceBBox =
       faceFrame.faceBoundingBox && frameWidth > 0 && frameHeight > 0
-        ? getFaceBBoxNormalized(faceFrame.faceBoundingBox, frameWidth, frameHeight)
+        ? getFaceBBoxNormalized(
+            faceFrame.faceBoundingBox,
+            frameWidth,
+            frameHeight,
+            true,
+            isMirrored,
+          )
         : null;
 
     const mobileResult = mobileFaceHandCounterRef.current.update(
@@ -204,11 +208,12 @@ export function useFaceYogaPipeline({
           detectMode: handFrame?.detectMode ?? '',
           frameOrientation: handFrame?.frameOrientation ?? '?',
           rawHandCount: handFrame?.hands?.length ?? 0,
-          handDetected: (handFrame?.hands?.length ?? 0) > 0,
+          handDetected: mobileResult.handDetected,
           handLandmarkCount: hand?.landmarks?.length ?? 0,
           faceBBox: faceBBox ? 'YES' : 'NO',
           overlapScore: mobileResult.overlapScore.toFixed(2),
           feedbackState: mobileResult.feedbackState,
+          isActive: mobileResult.isActive,
           reps: mobileResult.reps,
         });
       }

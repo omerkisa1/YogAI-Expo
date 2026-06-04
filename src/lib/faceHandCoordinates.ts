@@ -55,18 +55,28 @@ export function getFaceBBoxNormalized(
   faceBBox: BoundingBox,
   frameWidth: number,
   frameHeight: number,
+  isPortrait = true,
+  isMirrored = false,
 ): NormalizedFaceBox {
-  const fw = Math.max(frameWidth, 1);
-  const fh = Math.max(frameHeight, 1);
-  const minX = faceBBox.x / fw;
-  const maxX = (faceBBox.x + faceBBox.width) / fw;
-  const minY = faceBBox.y / fh;
-  const maxY = (faceBBox.y + faceBBox.height) / fh;
+  const corners = normalizeHandLandmarks(
+    [
+      { x: faceBBox.x, y: faceBBox.y, z: 0 },
+      { x: faceBBox.x + faceBBox.width, y: faceBBox.y, z: 0 },
+      { x: faceBBox.x + faceBBox.width, y: faceBBox.y + faceBBox.height, z: 0 },
+      { x: faceBBox.x, y: faceBBox.y + faceBBox.height, z: 0 },
+    ],
+    frameWidth,
+    frameHeight,
+    isPortrait,
+    isMirrored,
+  );
+  const xs = corners.map(p => p.x);
+  const ys = corners.map(p => p.y);
   return {
-    minX: clamp01(minX),
-    maxX: clamp01(maxX),
-    minY: clamp01(minY),
-    maxY: clamp01(maxY),
+    minX: clamp01(Math.min(...xs)),
+    maxX: clamp01(Math.max(...xs)),
+    minY: clamp01(Math.min(...ys)),
+    maxY: clamp01(Math.max(...ys)),
   };
 }
 

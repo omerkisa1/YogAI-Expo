@@ -334,6 +334,23 @@ const CameraTestScreen = ({ navigation }: Props) => {
     cameraFacing,
   });
 
+  useEffect(() => {
+    if (!__DEV__ || !isFaceHandExercise) return;
+    const hf = exerciseAnalysis.handFrame;
+    if (!hf) return;
+    const first = hf.hands[0];
+    console.log('[HAND_DEBUG]', {
+      handsCount: hf.hands.length,
+      firstHandLandmarks: first?.landmarks?.length ?? 0,
+      sample: first?.landmarks?.[0] ?? null,
+      frameW: hf.frameWidth,
+      frameH: hf.frameHeight,
+      handReady: hf.handReady,
+      nativeHandCount: hf.nativeHandCount,
+      detectMode: hf.detectMode,
+    });
+  }, [isFaceHandExercise, exerciseAnalysis.handFrame]);
+
   const screen = Dimensions.get('window');
   const format = useCameraFormat(device, [
     { fps: 30 },
@@ -674,7 +691,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
                       ? frameProcessor
                       : undefined
                 }
-                pixelFormat="yuv"
+                pixelFormat={isFaceMode && Platform.OS === 'ios' ? 'rgb' : 'yuv'}
                 videoStabilizationMode="off"
                 outputOrientation="device"
                 resizeMode={devResizeMode}
