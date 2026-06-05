@@ -20,6 +20,7 @@ import { resetFaceBaseline, isBaselineCalibrated } from '@/lib/faceMeshMapper';
 import { useFaceLandmarker } from '@/features/pose/useFaceLandmarker';
 import { HAND_LANDMARKER_SUPPORTED, useHandLandmarker } from '@/features/pose/useHandLandmarker';
 import { useStableFaceDetected } from '@/features/pose/useStableFaceDetected';
+import { useStableHandDetected } from '@/features/pose/useStableHandDetected';
 
 type Params = {
   poseId: string;
@@ -76,6 +77,15 @@ export function useFaceYogaPipeline({
     faceFrame?.timestamp,
   );
   const showFaceLostBanner = active && isFaceMode && stableFaceLost;
+
+  const stableHand = useStableHandDetected({
+    rawHands: handFrame?.hands,
+    isActive: active && isFaceHand,
+    frameTick: handFrame?.timestamp,
+    appearFrames: 1,
+    disappearFrames: 8,
+    maxGhostMs: 600,
+  });
 
   const [isCalibrating, setIsCalibrating] = useState(false);
 
@@ -167,13 +177,6 @@ export function useFaceYogaPipeline({
     const frameHeight = handFrame?.frameHeight || faceFrame.frameHeight;
     const isMirrored = cameraFacing === 'front';
 
-    const hand = handFrame?.hands?.[0];
-    const lm = hand?.landmarks;
-    const normalizedHand =
-      lm && lm.length >= 21
-        ? normalizeHandLandmarks(lm, frameWidth, frameHeight, true, isMirrored)
-        : null;
-
     const faceBBox =
       faceFrame.faceBoundingBox && frameWidth > 0 && frameHeight > 0
         ? getFaceBBoxNormalized(
@@ -185,10 +188,29 @@ export function useFaceYogaPipeline({
           )
         : null;
 
+    if (!stableHand.detected) {
+      const mobileResult = mobileFaceHandCounterRef.current.update(null, faceBBox, faceFrame.blendshapes);
+      const cfg = mobileFaceHandCounterRef.current.getConfig();
+      setFaceHandRepResult(toFaceHandUiResult(mobileResult, cfg.barLabelKey));
+      setIsCalibrating(!isBaselineCalibrated());
+      return;
+    }
+
+    const normalizedHand = stableHand.landmarks
+      ? normalizeHandLandmarks(
+          stableHand.landmarks,
+          frameWidth,
+          frameHeight,
+          true,
+          isMirrored,
+        )
+      : null;
+
     const mobileResult = mobileFaceHandCounterRef.current.update(
       normalizedHand,
       faceBBox,
       faceFrame.blendshapes,
+      stableHand.isGhost,
     );
     const cfg = mobileFaceHandCounterRef.current.getConfig();
     setFaceHandRepResult(toFaceHandUiResult(mobileResult, cfg.barLabelKey));
@@ -208,18 +230,21 @@ export function useFaceYogaPipeline({
           detectMode: handFrame?.detectMode ?? '',
           frameOrientation: handFrame?.frameOrientation ?? '?',
           rawHandCount: handFrame?.hands?.length ?? 0,
+          stableHand: stableHand.isGhost ? 'GHOST' : 'LIVE',
           handDetected: mobileResult.handDetected,
-          handLandmarkCount: hand?.landmarks?.length ?? 0,
+          handLandmarkCount: stableHand.landmarks?.length ?? 0,
           faceBBox: faceBBox ? 'YES' : 'NO',
           overlapScore: mobileResult.overlapScore.toFixed(2),
           feedbackState: mobileResult.feedbackState,
           motionType: mobileResult.motionType,
+          motionPaused: mobileResult.motionPaused ?? false,
           isActive: mobileResult.isActive,
+          holdProgress: mobileResult.holdProgress.toFixed(2),
           reps: mobileResult.reps,
         });
       }
     }
-  }, [active, isFaceHand, faceFrame, handFrame, cameraFacing]);
+  }, [active, isFaceHand, faceFrame, handFrame, cameraFacing, stableHand]);
 
   useEffect(() => {
     if (!faceRepResult) {
@@ -313,5 +338,6 @@ export function useFaceYogaPipeline({
     resetCounters,
     faceLmLoading,
     handLmLoading,
+    stableHand,
   };
 }

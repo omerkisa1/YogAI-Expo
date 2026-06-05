@@ -4,7 +4,9 @@ import {
   getFaceWidthFromBox,
   getHandCenter,
   getRegionCenterOnFace,
+  getSweepDisplacement,
   handNearRegion,
+  isPointInsideFaceBox,
   isHandFist,
   isHandOpen,
   isHandOverlappingFace,
@@ -12,6 +14,15 @@ import {
   type NormalizedFaceBox,
   type NormalizedPoint,
 } from '@/lib/faceHandCoordinates';
+import {
+  createMotionState,
+  detectCircularMotion,
+  hardResetMotionState,
+  isMotionExpired,
+  pauseMotion,
+  resumeMotion,
+  type MotionState,
+} from '@/lib/faceHandMotionTracker';
 
 export type MobileFaceHandMotionType = 'hold' | 'circular' | 'sweep';
 export type MobileFaceHandSweepDirection = 'horizontal' | 'vertical' | 'any';
@@ -56,6 +67,7 @@ export interface MobileFaceHandResult {
   overlapScore: number;
   handDetected: boolean;
   motionType: MobileFaceHandMotionType;
+  motionPaused?: boolean;
 }
 
 export interface FaceHandUiResult {
@@ -72,13 +84,15 @@ export interface FaceHandUiResult {
   overlapScore: number;
   motionType: MobileFaceHandMotionType;
   isActive: boolean;
+  motionPaused?: boolean;
 }
 
-type InternalPhase = 'guide_hand' | 'stabilizing' | 'active' | 'cooldown' | 'returning';
+type InternalPhase = 'guide_hand' | 'stabilizing' | 'active' | 'cooldown';
 
-const CIRCULAR_MIN_RADIUS = 0.012;
-const CIRCULAR_NOISE_GATE_DEG = 1.5;
-const MOTION_GRACE_MS = 500;
+const MOTION_GRACE_MS = 800;
+const OVERLAP_MEMORY_MS = 800;
+const REP_COOLDOWN_MS = 500;
+const SWEEP_NOISE_FLOOR = 0.01;
 const TRACK_TIP = 8;
 
 const BASE_CONFIG = {
@@ -107,7 +121,7 @@ export const MOBILE_FACE_HAND_CONFIGS: Record<string, MobileFaceHandConfig> = {
     motionType: 'sweep',
     holdDurationMs: 0,
     circularAngleDeg: 0,
-    sweepDistance: 0.28,
+    sweepDistance: 0.17,
     sweepDirection: 'horizontal',
     repTarget: 5,
     feedbackKey: 'feedbackForeheadSmooth',
@@ -212,7 +226,7 @@ export const MOBILE_FACE_HAND_CONFIGS: Record<string, MobileFaceHandConfig> = {
     motionType: 'sweep',
     holdDurationMs: 0,
     circularAngleDeg: 0,
-    sweepDistance: 0.28,
+    sweepDistance: 0.17,
     sweepDirection: 'horizontal',
     repTarget: 5,
     feedbackKey: 'feedbackBrowSmooth',
@@ -386,6 +400,7 @@ export function toFaceHandUiResult(result: MobileFaceHandResult, barLabelKey: st
     overlapScore: result.overlapScore,
     motionType: result.motionType,
     isActive: result.isActive,
+    motionPaused: result.motionPaused,
   };
 }
 
@@ -411,30 +426,29 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
   const target = customRepTarget && customRepTarget > 0 ? customRepTarget : config.repTarget;
   const motionType = config.motionType;
   const stabilizeMs = config.stabilizeMs;
-  const cooldownMs = config.cooldownMs;
 
   let reps = 0;
   let phase: InternalPhase = 'guide_hand';
   let phaseStart = 0;
   let lastOverlap = 0;
+  let lastHoldProgress = 0;
+  let lastOverlapScore = 0;
+  let overlapMemoryUntil = 0;
+  let cooldownStartTime = 0;
+  const motionState: MotionState = createMotionState();
 
-  let prevAngleRad: number | null = null;
-  let cumulativeAngleDeg = 0;
-
-  let sweepStartPos: NormalizedPoint | null = null;
-  let sweepBaselineDist = 0;
-  let sweepComplete = false;
+  let sweepHandStart: NormalizedPoint | null = null;
+  let sweepMaxProgress = 0;
+  let lockedSweepIdx: number | null = null;
   let trackedPoint: NormalizedPoint | null = null;
 
   let holdStartTime = 0;
   let graceStartTime = 0;
 
   function resetMotionState() {
-    prevAngleRad = null;
-    cumulativeAngleDeg = 0;
-    sweepStartPos = null;
-    sweepBaselineDist = 0;
-    sweepComplete = false;
+    sweepHandStart = null;
+    sweepMaxProgress = 0;
+    lockedSweepIdx = null;
     trackedPoint = null;
     holdStartTime = 0;
     graceStartTime = 0;
@@ -446,15 +460,14 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
     fallback: NormalizedPoint,
   ) {
     resetMotionState();
+    hardResetMotionState(motionState);
     const closest = getClosestHandPointToRegion(handLandmarks, faceBox, config.requiredRegion);
+    lockedSweepIdx = closest?.landmarkIndex ?? TRACK_TIP;
     trackedPoint = closest?.point ?? handLandmarks[TRACK_TIP] ?? fallback;
 
-    if (motionType === 'sweep') {
-      sweepStartPos =
-        getRegionCenterOnFace(faceBox, config.requiredRegion) ?? fallback;
-      if (trackedPoint && sweepStartPos) {
-        sweepBaselineDist = distance2D(trackedPoint, sweepStartPos);
-      }
+    if (motionType === 'sweep' && trackedPoint) {
+      sweepHandStart = { x: trackedPoint.x, y: trackedPoint.y, z: trackedPoint.z ?? 0 };
+      sweepMaxProgress = 0;
     }
     if (motionType === 'hold') {
       holdStartTime = Date.now();
@@ -465,10 +478,35 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
     return handLandmarks[TRACK_TIP] ?? getHandCenter(handLandmarks);
   }
 
+  function handleActiveDropout(
+    proximity: number,
+    handDet: boolean,
+  ): MobileFaceHandResult | null {
+    pauseMotion(motionState);
+    if (isMotionExpired(motionState)) {
+      phase = 'guide_hand';
+      phaseStart = 0;
+      overlapMemoryUntil = 0;
+      hardResetMotionState(motionState);
+      resetMotionState();
+      return buildResult('guide_hand', proximity, handDet, 0, reps / target, false);
+    }
+    return buildResult(
+      'hold',
+      proximity,
+      handDet,
+      lastHoldProgress,
+      reps / target,
+      true,
+      true,
+    );
+  }
+
   function update(
     handLandmarks: NormalizedPoint[] | null,
     faceBox: NormalizedFaceBox | null,
     blendshapes?: Map<string, number>,
+    isGhostHand?: boolean,
   ): MobileFaceHandResult {
     if (reps >= target) {
       return buildResult('complete', lastOverlap, false, 1, 1, false);
@@ -478,87 +516,123 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
     const now = Date.now();
 
     if (!handDetected || !faceBox) {
-      phase = 'guide_hand';
-      phaseStart = 0;
-      resetMotionState();
+      if (phase === 'active') {
+        const dropped = handleActiveDropout(lastOverlapScore, false);
+        if (dropped) return dropped;
+      }
+      if (phase !== 'cooldown') {
+        phase = 'guide_hand';
+        phaseStart = 0;
+        overlapMemoryUntil = 0;
+        resetMotionState();
+        hardResetMotionState(motionState);
+      }
       return buildResult('guide_hand', 0, false, 0, reps / target, false);
     }
 
+    if (motionState.isPaused) {
+      resumeMotion(motionState);
+    }
+
     const overlap = isHandOverlappingFace(handLandmarks, faceBox, 0.08);
+    if (overlap.overlapping) {
+      overlapMemoryUntil = now + OVERLAP_MEMORY_MS;
+    }
+    const overlapOk = overlap.overlapping || now < overlapMemoryUntil;
     lastOverlap = overlap.overlapScore;
+    lastOverlapScore = overlap.overlapScore;
 
     const regionNear = handNearRegion(handLandmarks, faceBox, config.requiredRegion, 0.4);
-    const handNearFace = overlap.overlapping || regionNear;
+    const handNearFace = overlapOk || regionNear;
     const proximity = overlap.overlapScore;
 
     const blendOk = blendshapeOk(config, blendshapes);
-    const shapePasses = shapeOk(config, handLandmarks);
+    const shapePasses = isGhostHand ? true : shapeOk(config, handLandmarks);
 
     if (motionType === 'sweep' && phase === 'active') {
-      const tip = getTrackedPoint(handLandmarks);
-      const onFace = overlap.overlapping || regionNear;
+      const liveTip =
+        lockedSweepIdx !== null && handLandmarks[lockedSweepIdx]
+          ? handLandmarks[lockedSweepIdx]
+          : getTrackedPoint(handLandmarks);
+      const onFace =
+        isPointInsideFaceBox(liveTip, faceBox, 0.14) ||
+        handNearFace ||
+        sweepMaxProgress > 0.08;
 
-      if (onFace && sweepStartPos) {
+      if (sweepHandStart && lockedSweepIdx !== null) {
         const faceWidth = getFaceWidthFromBox(faceBox);
-        const sweepThreshold = Math.max(faceWidth * config.sweepDistance, 0.05);
-        const dist = distance2D(tip, sweepStartPos);
-        const netDist = Math.max(dist - sweepBaselineDist, 0);
+        const sweepThreshold = Math.max(faceWidth * config.sweepDistance, 0.035);
+        const rawDist = getSweepDisplacement(liveTip, sweepHandStart, config.sweepDirection);
+        const netDist = Math.max(0, rawDist - SWEEP_NOISE_FLOOR);
+        const frameProgress =
+          sweepThreshold > 0 ? Math.min(netDist / sweepThreshold, 1) : 0;
+        sweepMaxProgress = Math.max(sweepMaxProgress, frameProgress);
+        lastHoldProgress = sweepMaxProgress;
 
-        if (!sweepComplete && netDist >= sweepThreshold) {
-          sweepComplete = true;
-          reps++;
-        }
+        if (onFace || sweepMaxProgress > 0.08) {
+          if (netDist >= sweepThreshold) {
+            reps++;
+            phase = 'cooldown';
+            phaseStart = now;
+            cooldownStartTime = now;
+            resetMotionState();
+            hardResetMotionState(motionState);
+            lastHoldProgress = 1;
+            const done = reps >= target;
+            return buildResult(done ? 'complete' : 'good', proximity, true, 1, reps / target, false);
+          }
 
-        if (sweepComplete && !handNearFace) {
-          const done = reps >= target;
-          resetMotionState();
-          phase = done ? 'guide_hand' : 'returning';
-          phaseStart = now;
-          return buildResult(done ? 'complete' : 'good', proximity, true, 1, reps / target, false);
-        }
-
-        const holdProgress = sweepThreshold > 0 ? Math.min(netDist / sweepThreshold, 1) : 0;
-        const feedbackState: MobileFaceHandFeedbackState = sweepComplete
-          ? 'good'
-          : netDist > 0.01
-            ? 'hold'
-            : 'guide_motion';
-        return buildResult(feedbackState, proximity, true, holdProgress, reps / target, true);
-      }
-
-      if (!sweepComplete) {
-        phase = 'guide_hand';
-        phaseStart = 0;
-        resetMotionState();
-      }
-      return buildResult(sweepComplete ? 'good' : 'guide_hand', proximity, true, 0, reps / target, false);
-    }
-
-    if (!handNearFace || !regionNear) {
-      if (phase === 'active' && motionType === 'circular') {
-        if (graceStartTime === 0) graceStartTime = now;
-        if (now - graceStartTime < MOTION_GRACE_MS) {
-          const angleTarget = config.circularAngleDeg || 330;
+          const feedbackState: MobileFaceHandFeedbackState =
+            sweepMaxProgress > 0.06 ? 'hold' : 'guide_motion';
           return buildResult(
-            'hold',
+            feedbackState,
             proximity,
             true,
-            Math.min(cumulativeAngleDeg / angleTarget, 1),
+            sweepMaxProgress,
             reps / target,
             true,
           );
         }
       }
+
+      const dropped = handleActiveDropout(proximity, true);
+      if (dropped) return dropped;
+      return buildResult(
+        'hold',
+        proximity,
+        true,
+        lastHoldProgress,
+        reps / target,
+        true,
+        true,
+      );
+    }
+
+    if (!handNearFace || !regionNear) {
+      if (phase === 'active') {
+        if (graceStartTime === 0) graceStartTime = now;
+        if (now - graceStartTime < MOTION_GRACE_MS) {
+          const dropped = handleActiveDropout(proximity, true);
+          if (dropped) return dropped;
+        }
+      }
       phase = 'guide_hand';
       phaseStart = 0;
+      overlapMemoryUntil = 0;
       resetMotionState();
+      hardResetMotionState(motionState);
       return buildResult('guide_hand', proximity, true, 0, reps / target, false);
     }
 
     if (!shapePasses) {
+      if (phase === 'active') {
+        const dropped = handleActiveDropout(proximity, true);
+        if (dropped) return dropped;
+      }
       phase = 'guide_hand';
       phaseStart = 0;
       resetMotionState();
+      hardResetMotionState(motionState);
       return buildResult('guide_action', proximity, true, 0, reps / target, false);
     }
 
@@ -581,25 +655,20 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
       phase = 'active';
       phaseStart = now;
       initActivePhase(handLandmarks, faceBox, getHandCenter(handLandmarks));
+      if (motionType === 'sweep') {
+        return buildResult('guide_motion', proximity, true, 0, reps / target, true);
+      }
     }
 
     if (phase === 'cooldown') {
-      if (now - phaseStart < cooldownMs) {
+      if (now - cooldownStartTime < REP_COOLDOWN_MS) {
         return buildResult('good', proximity, true, 1, reps / target, false);
       }
-      phase = 'active';
-      phaseStart = now;
-      initActivePhase(handLandmarks, faceBox, getHandCenter(handLandmarks));
-    }
-
-    if (phase === 'returning') {
-      const origin = getRegionCenterOnFace(faceBox, config.requiredRegion);
-      const tip = getTrackedPoint(handLandmarks);
-      if (distance2D(tip, origin) < getFaceWidthFromBox(faceBox) * 0.3) {
-        phase = 'stabilizing';
-        phaseStart = now;
-        resetMotionState();
-      }
+      phase = 'guide_hand';
+      phaseStart = 0;
+      cooldownStartTime = 0;
+      resetMotionState();
+      hardResetMotionState(motionState);
       return buildResult('guide_hand', proximity, true, 0, reps / target, false);
     }
 
@@ -614,43 +683,39 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
         reps++;
         phase = 'cooldown';
         phaseStart = now;
+        cooldownStartTime = now;
         resetMotionState();
+        hardResetMotionState(motionState);
         feedbackState = reps >= target ? 'complete' : 'good';
       } else {
         feedbackState = 'hold';
       }
     } else if (motionType === 'circular') {
-      const center = getRegionCenterOnFace(faceBox, config.requiredRegion);
-      const radius = distance2D(tip, center);
-      const currentAngle = Math.atan2(tip.y - center.y, tip.x - center.x);
+      const handCenter = getHandCenter(handLandmarks);
+      const circular = detectCircularMotion(
+        motionState,
+        handCenter.x,
+        handCenter.y,
+        config.circularAngleDeg || 330,
+      );
+      holdProgress = circular.progress;
 
-      if (prevAngleRad !== null && radius >= CIRCULAR_MIN_RADIUS) {
-        let delta = currentAngle - prevAngleRad;
-        while (delta > Math.PI) delta -= 2 * Math.PI;
-        while (delta < -Math.PI) delta += 2 * Math.PI;
-        const deltaDeg = Math.abs(delta) * (180 / Math.PI);
-        if (deltaDeg >= CIRCULAR_NOISE_GATE_DEG) {
-          cumulativeAngleDeg += deltaDeg;
-        }
-      }
-      prevAngleRad = currentAngle;
-
-      const angleTarget = config.circularAngleDeg || 330;
-      holdProgress = Math.min(cumulativeAngleDeg / angleTarget, 1);
-
-      if (cumulativeAngleDeg >= angleTarget) {
+      if (circular.isComplete) {
         reps++;
         phase = 'cooldown';
         phaseStart = now;
+        cooldownStartTime = now;
         resetMotionState();
+        hardResetMotionState(motionState);
         feedbackState = reps >= target ? 'complete' : 'good';
-      } else if (cumulativeAngleDeg > 15) {
+      } else if (holdProgress > 0.05) {
         feedbackState = 'hold';
       } else {
         feedbackState = 'guide_motion';
       }
     }
 
+    lastHoldProgress = holdProgress;
     return buildResult(feedbackState, proximity, true, holdProgress, reps / target, true);
   }
 
@@ -661,6 +726,7 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
     holdProgress: number,
     progress: number,
     isActive: boolean,
+    motionPaused = false,
   ): MobileFaceHandResult {
     return {
       reps,
@@ -674,6 +740,7 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
       overlapScore,
       handDetected: handDet,
       motionType: config.motionType,
+      motionPaused,
     };
   }
 
@@ -682,7 +749,12 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
     phase = 'guide_hand';
     phaseStart = 0;
     lastOverlap = 0;
+    lastHoldProgress = 0;
+    lastOverlapScore = 0;
+    overlapMemoryUntil = 0;
+    cooldownStartTime = 0;
     resetMotionState();
+    hardResetMotionState(motionState);
   }
 
   return { update, reset, getConfig: () => config };

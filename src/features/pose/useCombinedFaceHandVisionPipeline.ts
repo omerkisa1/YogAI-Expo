@@ -17,7 +17,7 @@ import {
 import { handLandmarkerDetectionCallback } from './useHandLandmarker';
 
 const FACE_VISION_FPS = 8;
-const HAND_VISION_FPS = 6;
+const HAND_VISION_FPS = 5;
 
 export type UseCombinedFaceHandVisionPipelineOptions = {
   active: boolean;
@@ -40,6 +40,12 @@ export function useCombinedFaceHandVisionPipeline({
     [cameraFacing],
   );
   const { detectFaces, stopListeners } = useFaceDetector(faceDetectionOptions);
+
+  useEffect(() => {
+    if (!active) {
+      stopListeners();
+    }
+  }, [active, stopListeners]);
 
   useEffect(() => () => stopListeners(), [stopListeners]);
 
@@ -83,6 +89,7 @@ export function useCombinedFaceHandVisionPipeline({
       'worklet';
       runAtTargetFps(FACE_VISION_FPS, () => {
         'worklet';
+        if (!activeRef.current) return;
         runAsync(frame, () => {
           'worklet';
           const faces = detectFaces(frame);
@@ -96,7 +103,7 @@ export function useCombinedFaceHandVisionPipeline({
 
       runAtTargetFps(HAND_VISION_FPS, () => {
         'worklet';
-        if (!enableHandsRef.current) return;
+        if (!activeRef.current || !enableHandsRef.current) return;
         runAsync(frame, () => {
           'worklet';
           const handsFrame = detectHandsInFrame(frame);

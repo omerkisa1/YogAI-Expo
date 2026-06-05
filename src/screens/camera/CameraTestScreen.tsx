@@ -36,6 +36,7 @@ import { usePoseVisionPipeline } from '@/features/pose/usePoseVisionPipeline';
 import { useExerciseAnalysis, resolveExerciseAnalysisKind } from '@/features/pose/useExerciseAnalysis';
 import { useCombinedFaceHandVisionPipeline } from '@/features/pose/useCombinedFaceHandVisionPipeline';
 import Button from '@/shared/components/Button';
+import { useIsAppActive } from '@/shared/hooks/useIsAppActive';
 import {
   SkeletonOverlay,
   computeContainFitTransform,
@@ -254,6 +255,8 @@ const CameraTestScreen = ({ navigation }: Props) => {
   const isRepExercise = isFaceMode;
   const isTimedExercise = isBodyExercise;
   const isAnalyzing = screenState === 'active';
+  const isAppActive = useIsAppActive();
+  const cameraSessionActive = isAnalyzing && isAppActive;
 
   const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('front');
   /** Önizleme: 1 = tam kadraj; <1 = daha “uzak” (küçük görüntü). ML tam çözünürlükte kalır. */
@@ -323,13 +326,13 @@ const CameraTestScreen = ({ navigation }: Props) => {
   }, [devResizeMode]);
 
   const device = useCameraDevice(cameraFacing);
-  const cameraReady = Boolean(device && overlaySize.width > 0 && isAnalyzing);
+  const cameraReady = Boolean(device && overlaySize.width > 0 && cameraSessionActive);
 
   const exerciseAnalysis = useExerciseAnalysis({
     poseId: selectedPoseId ?? '',
     analysisKind,
     repTarget: selectedPose?.rep_target,
-    active: isAnalyzing && isFaceMode,
+    active: cameraSessionActive && isFaceMode,
     cameraReady,
     cameraFacing,
   });
@@ -367,7 +370,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
   }, [format]);
 
   const { frameProcessor: faceHandFrameProcessor } = useCombinedFaceHandVisionPipeline({
-    active: isAnalyzing && isFaceMode,
+    active: cameraSessionActive && isFaceMode,
     enableHands: isFaceHandExercise,
     cameraFacing,
   });
@@ -677,7 +680,7 @@ const CameraTestScreen = ({ navigation }: Props) => {
               <VisionCamera
                 style={StyleSheet.absoluteFill}
                 device={device}
-                isActive={isAnalyzing}
+                isActive={cameraSessionActive}
                 format={format}
                 fps={30}
                 photo={false}

@@ -29,6 +29,7 @@ type Props = {
   repCompletionLatched?: boolean;
   latchedTargetReps?: number;
   onRetry?: () => void;
+  handDebugStatus?: 'LIVE' | 'GHOST' | 'LOST';
 };
 
 function CompactRepCounter({
@@ -116,6 +117,7 @@ export function FaceTrainingOverlays({
   repCompletionLatched = false,
   latchedTargetReps = 0,
   onRetry,
+  handDebugStatus,
 }: Props) {
   const insets = useSafeAreaInsets();
   const strings = getTrainingStrings(locale);
@@ -229,6 +231,18 @@ export function FaceTrainingOverlays({
           <View style={[styles.faceLostBanner, { top: insets.top + 56 }]}>
             <Text style={styles.faceLostText}>
               {locale === 'tr' ? 'Yüz algılanmadı — kameraya bakın' : 'Face not detected — look at camera'}
+            </Text>
+          </View>
+        )}
+
+        {__DEV__ && handDebugStatus && (
+          <View style={styles.handDebugPanel}>
+            <Text style={styles.handDebugText}>
+              {`hand: ${handDebugStatus}\n`}
+              {`overlap: ${faceHandRepResult.overlapScore?.toFixed(2) ?? '-'}\n`}
+              {`motion: ${faceHandRepResult.motionPaused ? 'PAUSED' : 'ACTIVE'}\n`}
+              {`progress: ${(faceHandRepResult.holdProgress ?? 0).toFixed(2)}\n`}
+              {`reps: ${faceHandRepResult.reps ?? 0}/${faceHandRepResult.target ?? 0}`}
             </Text>
           </View>
         )}
@@ -439,6 +453,20 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 11,
     color: 'rgba(255,255,255,0.55)',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  handDebugPanel: {
+    position: 'absolute',
+    top: 60,
+    left: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 4,
+    borderRadius: 6,
+    zIndex: 30,
+  },
+  handDebugText: {
+    color: '#fff',
+    fontSize: 9,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
 });

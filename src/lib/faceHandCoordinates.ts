@@ -104,11 +104,52 @@ export function isHandOverlappingFace(
   }
 
   const score = insideCount / checkPoints.length;
-  return { overlapping: score >= 0.15, overlapScore: score };
+  return { overlapping: score >= 0.2, overlapScore: score };
 }
 
 export function distance2D(a: NormalizedPoint, b: NormalizedPoint): number {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+}
+
+export function isPointInsideFaceBox(
+  point: NormalizedPoint,
+  faceBox: NormalizedFaceBox,
+  margin = 0.08,
+): boolean {
+  return (
+    point.x >= faceBox.minX - margin &&
+    point.x <= faceBox.maxX + margin &&
+    point.y >= faceBox.minY - margin &&
+    point.y <= faceBox.maxY + margin
+  );
+}
+
+export type SweepAxis = 'horizontal' | 'vertical' | 'any';
+
+export function getSweepDisplacement(
+  current: NormalizedPoint,
+  start: NormalizedPoint,
+  direction: SweepAxis,
+): number {
+  if (direction === 'horizontal') return Math.abs(current.x - start.x);
+  if (direction === 'vertical') return Math.abs(current.y - start.y);
+  return distance2D(current, start);
+}
+
+const SWEEP_TRACK_INDICES = [4, 8, 12, 16, 20, 0];
+
+export function getMaxHandSweepDisplacement(
+  handLandmarks: NormalizedPoint[],
+  start: NormalizedPoint,
+  direction: SweepAxis,
+): number {
+  let max = 0;
+  for (const idx of SWEEP_TRACK_INDICES) {
+    const p = handLandmarks[idx];
+    if (!p) continue;
+    max = Math.max(max, getSweepDisplacement(p, start, direction));
+  }
+  return max;
 }
 
 export function getFaceWidthFromBox(faceBox: NormalizedFaceBox): number {
@@ -146,9 +187,10 @@ export function getClosestHandPointToRegion(
   handLandmarks: NormalizedPoint[],
   faceBox: NormalizedFaceBox,
   region: FaceHandRegion,
-): { point: NormalizedPoint; distance: number } | null {
+): { point: NormalizedPoint; distance: number; landmarkIndex: number } | null {
   const center = getRegionCenterOnFace(faceBox, region);
   let best: NormalizedPoint | null = null;
+  let bestIdx = 8;
   let minDist = Infinity;
   for (const idx of TRACK_INDICES) {
     const p = handLandmarks[idx];
@@ -157,10 +199,11 @@ export function getClosestHandPointToRegion(
     if (d < minDist) {
       minDist = d;
       best = p;
+      bestIdx = idx;
     }
   }
   if (!best) return null;
-  return { point: best, distance: minDist };
+  return { point: best, distance: minDist, landmarkIndex: bestIdx };
 }
 
 export function handNearRegion(

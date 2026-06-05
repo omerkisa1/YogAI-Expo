@@ -49,6 +49,7 @@ import { radius, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 import { TrainingSessionHud } from '@/screens/training/TrainingSessionHud';
 import { FaceTrainingOverlays } from '@/shared/components/FaceTrainingOverlays';
+import { useIsAppActive } from '@/shared/hooks/useIsAppActive';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TrainingSession'>;
 
@@ -190,14 +191,17 @@ const TrainingScreen = ({ route, navigation }: Props) => {
     selectedPoseIdRef.current = poseIdForRules;
   }, [poseIdForRules]);
 
+  const isAppActive = useIsAppActive();
+  const cameraSessionActive = screenState === 'posing' && isAppActive;
+
   const device = useCameraDevice(cameraFacing);
-  const cameraReady = Boolean(device && overlaySize.width > 0 && screenState === 'posing');
+  const cameraReady = Boolean(device && overlaySize.width > 0 && cameraSessionActive);
 
   const exerciseAnalysis = useExerciseAnalysis({
     poseId: currentExercise?.pose_id ?? '',
     analysisKind,
     repTarget: repTarget || undefined,
-    active: screenState === 'posing' && isFaceMode,
+    active: cameraSessionActive && isFaceMode,
     cameraReady,
     cameraFacing,
   });
@@ -222,7 +226,7 @@ const TrainingScreen = ({ route, navigation }: Props) => {
   }, []);
 
   const { frameProcessor: faceHandFrameProcessor } = useCombinedFaceHandVisionPipeline({
-    active: screenState === 'posing' && isFaceMode,
+    active: cameraSessionActive && isFaceMode,
     enableHands: isFaceHandExercise,
     cameraFacing,
   });
@@ -662,7 +666,7 @@ const TrainingScreen = ({ route, navigation }: Props) => {
                   <VisionCamera
                     style={StyleSheet.absoluteFill}
                     device={device}
-                    isActive={screenState === 'posing'}
+                    isActive={cameraSessionActive}
                     format={format}
                     fps={30}
                     photo={false}
@@ -763,6 +767,15 @@ const TrainingScreen = ({ route, navigation }: Props) => {
             setRepCompletionLatched(false);
             setCompletionCountdown(null);
           }}
+          handDebugStatus={
+            isFaceHandExercise
+              ? exerciseAnalysis.stableHand?.detected
+                ? exerciseAnalysis.stableHand.isGhost
+                  ? 'GHOST'
+                  : 'LIVE'
+                : 'LOST'
+              : undefined
+          }
         />
       )}
 
