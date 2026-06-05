@@ -218,6 +218,30 @@ export function handNearRegion(
   return closest.distance < getFaceWidthFromBox(faceBox) * proximityRatio;
 }
 
+const CHIN_ANCHOR_INDICES = [0, 1, 5, 9, 4, 8, 12];
+
+export function handNearChinRegion(
+  handLandmarks: NormalizedPoint[],
+  faceBox: NormalizedFaceBox,
+  proximityRatio = 0.58,
+): boolean {
+  if (handNearRegion(handLandmarks, faceBox, 'chin', proximityRatio)) return true;
+
+  const center = getRegionCenterOnFace(faceBox, 'chin');
+  const faceW = getFaceWidthFromBox(faceBox);
+  const maxDist = faceW * proximityRatio;
+  const jawBandMinY = faceBox.minY + (faceBox.maxY - faceBox.minY) * 0.68;
+  const jawBandMaxY = faceBox.maxY + faceW * 0.22;
+
+  for (const idx of CHIN_ANCHOR_INDICES) {
+    const p = handLandmarks[idx];
+    if (!p) continue;
+    if (p.y < jawBandMinY || p.y > jawBandMaxY) continue;
+    if (distance2D(p, center) < maxDist) return true;
+  }
+  return false;
+}
+
 export type FaceHandRegion = 'forehead' | 'cheek' | 'chin' | 'temple' | 'eye' | 'any' | 'none';
 
 export function getHandRegionOnFace(

@@ -5,6 +5,7 @@ import {
   getHandCenter,
   getRegionCenterOnFace,
   getSweepDisplacement,
+  handNearChinRegion,
   handNearRegion,
   isPointInsideFaceBox,
   isHandFist,
@@ -141,7 +142,7 @@ export const MOBILE_FACE_HAND_CONFIGS: Record<string, MobileFaceHandConfig> = {
     barLabelKey: 'jawReleaseLevel',
     overlapBarThreshold: 0.4,
     requiresBlendshape: 'jawOpen',
-    blendshapeThreshold: 0.25,
+    blendshapeThreshold: 0.18,
     cooldownMs: 600,
     stabilizeMs: 300,
   },
@@ -469,7 +470,7 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
       sweepHandStart = { x: trackedPoint.x, y: trackedPoint.y, z: trackedPoint.z ?? 0 };
       sweepMaxProgress = 0;
     }
-    if (motionType === 'hold') {
+    if (motionType === 'hold' && !config.requiresBlendshape) {
       holdStartTime = Date.now();
     }
   }
@@ -534,7 +535,9 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
       resumeMotion(motionState);
     }
 
-    const overlap = isHandOverlappingFace(handLandmarks, faceBox, 0.08);
+    const overlapMargin =
+      config.requiredRegion === 'chin' && motionType === 'hold' ? 0.14 : 0.08;
+    const overlap = isHandOverlappingFace(handLandmarks, faceBox, overlapMargin);
     if (overlap.overlapping) {
       overlapMemoryUntil = now + OVERLAP_MEMORY_MS;
     }
@@ -542,7 +545,10 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
     lastOverlap = overlap.overlapScore;
     lastOverlapScore = overlap.overlapScore;
 
-    const regionNear = handNearRegion(handLandmarks, faceBox, config.requiredRegion, 0.4);
+    const regionNear =
+      config.requiredRegion === 'chin' && motionType === 'hold'
+        ? handNearChinRegion(handLandmarks, faceBox, 0.58)
+        : handNearRegion(handLandmarks, faceBox, config.requiredRegion, 0.4);
     const handNearFace = overlapOk || regionNear;
     const proximity = overlap.overlapScore;
 
@@ -609,7 +615,7 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
     }
 
     if (!handNearFace || !regionNear) {
-      if (phase === 'active') {
+      if (phase === 'active' && (motionType === 'circular' || motionType === 'hold')) {
         if (graceStartTime === 0) graceStartTime = now;
         if (now - graceStartTime < MOTION_GRACE_MS) {
           const dropped = handleActiveDropout(proximity, true);
@@ -636,7 +642,7 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
       return buildResult('guide_action', proximity, true, 0, reps / target, false);
     }
 
-    if (!blendOk && phase !== 'active') {
+    if (!blendOk && phase === 'guide_hand' && handNearFace && regionNear) {
       return buildResult('guide_action', proximity, true, 0, reps / target, false);
     }
 
@@ -677,8 +683,17 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
     const tip = getTrackedPoint(handLandmarks);
 
     if (motionType === 'hold') {
+      if (config.requiresBlendshape && !blendOk) {
+        holdStartTime = 0;
+        lastHoldProgress = 0;
+        return buildResult('guide_action', proximity, true, 0, reps / target, true);
+      }
+      if (holdStartTime === 0) {
+        holdStartTime = now;
+      }
       const elapsed = now - holdStartTime;
       holdProgress = Math.min(elapsed / Math.max(config.holdDurationMs, 1), 1);
+      lastHoldProgress = holdProgress;
       if (elapsed >= config.holdDurationMs) {
         reps++;
         phase = 'cooldown';
