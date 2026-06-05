@@ -255,20 +255,40 @@ export function FaceTrainingOverlays({
               enterThreshold={proximityThreshold}
               label={tKey(strings, faceHandRepResult.barLabelKey)}
             />
-            {faceHandRepResult.holdProgress > 0 && faceHandRepResult.holdProgress < 1 && (
-              <View style={styles.repCompactTrack}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    { width: `${faceHandRepResult.holdProgress * 100}%` },
-                  ]}
-                />
+            {!faceHandRepResult.isComplete &&
+              (faceHandRepResult.holdProgress > 0 ||
+                faceHandRepResult.feedbackState === 'guide_motion') && (
+              <View style={styles.motionBarWrap}>
+                <View style={styles.motionBarBg}>
+                  <View
+                    style={[
+                      styles.motionBarFill,
+                      {
+                        width: `${Math.min(faceHandRepResult.holdProgress * 100, 100)}%`,
+                        backgroundColor: faceHandRepResult.isActive
+                          ? faceHandRepResult.motionType === 'circular'
+                            ? '#60a5fa'
+                            : faceHandRepResult.motionType === 'sweep'
+                              ? '#a78bfa'
+                              : '#4ade80'
+                          : '#fbbf24',
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.motionLabel}>
+                  {faceHandRepResult.motionType === 'circular'
+                    ? strings.circularMotion
+                    : faceHandRepResult.motionType === 'sweep'
+                      ? strings.sweepMotion
+                      : strings.holdPosition}
+                </Text>
               </View>
             )}
             {__DEV__ && (
               <Text style={styles.devValue}>
                 overlap: {faceHandRepResult.overlapScore.toFixed(3)} | reps:{' '}
-                {faceHandRepResult.reps}
+                {faceHandRepResult.reps} | motion: {faceHandRepResult.motionType}
               </Text>
             )}
           </View>
@@ -384,6 +404,29 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#4ade80',
     borderRadius: 2,
+  },
+  motionBarWrap: {
+    marginTop: 8,
+    width: '100%',
+    maxWidth: 280,
+    alignSelf: 'center',
+  },
+  motionBarBg: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    overflow: 'hidden',
+  },
+  motionBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  motionLabel: {
+    marginTop: 4,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.75)',
+    textAlign: 'center',
+    fontWeight: '600',
   },
   barBottom: {
     position: 'absolute',

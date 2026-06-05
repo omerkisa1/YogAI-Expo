@@ -16,8 +16,8 @@ import {
 } from './useFaceLandmarker';
 import { handLandmarkerDetectionCallback } from './useHandLandmarker';
 
-const FACE_VISION_FPS = 12;
-const HAND_VISION_FPS = 10;
+const FACE_VISION_FPS = 8;
+const HAND_VISION_FPS = 6;
 
 export type UseCombinedFaceHandVisionPipelineOptions = {
   active: boolean;
@@ -97,19 +97,22 @@ export function useCombinedFaceHandVisionPipeline({
       runAtTargetFps(HAND_VISION_FPS, () => {
         'worklet';
         if (!enableHandsRef.current) return;
-        const handsFrame = detectHandsInFrame(frame);
-        onHandsDetected(
-          handsFrame.hands,
-          handsFrame.timestamp,
-          frame.width,
-          frame.height,
-          handsFrame.handReady,
-          handsFrame.poseReady,
-          handsFrame.pluginReturnedNull,
-          handsFrame.nativeHandCount ?? 0,
-          handsFrame.frameOrientation ?? frame.orientation,
-          handsFrame.detectMode ?? '',
-        );
+        runAsync(frame, () => {
+          'worklet';
+          const handsFrame = detectHandsInFrame(frame);
+          onHandsDetected(
+            handsFrame.hands,
+            handsFrame.timestamp,
+            frame.width,
+            frame.height,
+            handsFrame.handReady,
+            handsFrame.poseReady,
+            handsFrame.pluginReturnedNull,
+            handsFrame.nativeHandCount ?? 0,
+            handsFrame.frameOrientation ?? frame.orientation,
+            handsFrame.detectMode ?? '',
+          );
+        });
       });
     },
     [detectFaces, onFacesDetected, onHandsDetected],

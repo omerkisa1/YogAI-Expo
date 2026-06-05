@@ -104,7 +104,75 @@ export function isHandOverlappingFace(
   }
 
   const score = insideCount / checkPoints.length;
-  return { overlapping: score > 0.3, overlapScore: score };
+  return { overlapping: score >= 0.15, overlapScore: score };
+}
+
+export function distance2D(a: NormalizedPoint, b: NormalizedPoint): number {
+  return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+}
+
+export function getFaceWidthFromBox(faceBox: NormalizedFaceBox): number {
+  return Math.max(faceBox.maxX - faceBox.minX, 0.05);
+}
+
+export function getRegionCenterOnFace(
+  faceBox: NormalizedFaceBox,
+  region: FaceHandRegion,
+): NormalizedPoint {
+  const w = faceBox.maxX - faceBox.minX;
+  const h = faceBox.maxY - faceBox.minY;
+  const cx = (faceBox.minX + faceBox.maxX) / 2;
+  switch (region) {
+    case 'forehead':
+      return { x: cx, y: faceBox.minY + h * 0.15, z: 0 };
+    case 'cheek':
+      return { x: faceBox.minX + w * 0.32, y: faceBox.minY + h * 0.58, z: 0 };
+    case 'chin':
+      return { x: cx, y: faceBox.minY + h * 0.86, z: 0 };
+    case 'temple':
+      return { x: faceBox.maxX - w * 0.18, y: faceBox.minY + h * 0.38, z: 0 };
+    case 'eye':
+      return { x: cx, y: faceBox.minY + h * 0.42, z: 0 };
+    case 'any':
+      return { x: cx, y: faceBox.minY + h * 0.5, z: 0 };
+    default:
+      return { x: cx, y: faceBox.minY + h * 0.5, z: 0 };
+  }
+}
+
+const TRACK_INDICES = [4, 8, 12, 16, 20, 0];
+
+export function getClosestHandPointToRegion(
+  handLandmarks: NormalizedPoint[],
+  faceBox: NormalizedFaceBox,
+  region: FaceHandRegion,
+): { point: NormalizedPoint; distance: number } | null {
+  const center = getRegionCenterOnFace(faceBox, region);
+  let best: NormalizedPoint | null = null;
+  let minDist = Infinity;
+  for (const idx of TRACK_INDICES) {
+    const p = handLandmarks[idx];
+    if (!p) continue;
+    const d = distance2D(p, center);
+    if (d < minDist) {
+      minDist = d;
+      best = p;
+    }
+  }
+  if (!best) return null;
+  return { point: best, distance: minDist };
+}
+
+export function handNearRegion(
+  handLandmarks: NormalizedPoint[],
+  faceBox: NormalizedFaceBox,
+  region: FaceHandRegion,
+  proximityRatio = 0.35,
+): boolean {
+  if (region === 'any') return true;
+  const closest = getClosestHandPointToRegion(handLandmarks, faceBox, region);
+  if (!closest) return false;
+  return closest.distance < getFaceWidthFromBox(faceBox) * proximityRatio;
 }
 
 export type FaceHandRegion = 'forehead' | 'cheek' | 'chin' | 'temple' | 'eye' | 'any' | 'none';
@@ -147,35 +215,29 @@ export function getHandCenter(landmarks: NormalizedPoint[]): NormalizedPoint {
   };
 }
 
+function fingerExtended(landmarks: NormalizedPoint[], tip: number, pip: number): boolean {
+  const wrist = landmarks[0];
+  const tipLm = landmarks[tip];
+  const pipLm = landmarks[pip];
+  if (!wrist || !tipLm || !pipLm) return false;
+  return distance2D(tipLm, wrist) > distance2D(pipLm, wrist) * 1.05;
+}
+
 export function isHandOpen(landmarks: NormalizedPoint[]): boolean {
-  const tipMcp: [number, number][] = [
-    [8, 5],
-    [12, 9],
-    [16, 13],
-    [20, 17],
-  ];
   let extended = 0;
-  for (const [tip, mcp] of tipMcp) {
-    if (landmarks[tip] && landmarks[mcp] && landmarks[tip].y < landmarks[mcp].y) {
-      extended++;
-    }
-  }
-  return extended >= 3;
+  if (fingerExtended(landmarks, 8, 6)) extended++;
+  if (fingerExtended(landmarks, 12, 10)) extended++;
+  if (fingerExtended(landmarks, 16, 14)) extended++;
+  if (fingerExtended(landmarks, 20, 18)) extended++;
+  return extended >= 2;
 }
 
 export function isHandFist(landmarks: NormalizedPoint[]): boolean {
-  const tipMcp: [number, number][] = [
-    [8, 5],
-    [12, 9],
-    [16, 13],
-    [20, 17],
-  ];
   let extended = 0;
-  for (const [tip, mcp] of tipMcp) {
-    if (landmarks[tip] && landmarks[mcp] && landmarks[tip].y < landmarks[mcp].y) {
-      extended++;
-    }
-  }
+  if (fingerExtended(landmarks, 8, 6)) extended++;
+  if (fingerExtended(landmarks, 12, 10)) extended++;
+  if (fingerExtended(landmarks, 16, 14)) extended++;
+  if (fingerExtended(landmarks, 20, 18)) extended++;
   return extended <= 1;
 }
 

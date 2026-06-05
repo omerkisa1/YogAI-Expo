@@ -1,8 +1,8 @@
 diff --git a/node_modules/react-native-mediapipe-pose-plugin/ios/PoseLandmarkerPlugin.swift b/node_modules/react-native-mediapipe-pose-plugin/ios/PoseLandmarkerPlugin.swift
-index cf537e4..563f371 100644
+index cf537e4..b6f0b55 100644
 --- a/node_modules/react-native-mediapipe-pose-plugin/ios/PoseLandmarkerPlugin.swift
 +++ b/node_modules/react-native-mediapipe-pose-plugin/ios/PoseLandmarkerPlugin.swift
-@@ -1,258 +1,282 @@
+@@ -1,258 +1,270 @@
 -//
 -//  PoseLandmarkerPlugin.swift
 -//  AIPEER
@@ -389,31 +389,7 @@ index cf537e4..563f371 100644
 -                        "y": lm.y,
 -                        "z": lm.z,
 -                    ])
-+        guard onlyHands, let still = handLandmarkerStill else {
-+            return ([], "")
-+        }
-+
-+        let visionOrient = uiOrientation(from: orientationKey.isEmpty ? "landscape-right" : orientationKey)
-+        let tryOrientations: [UIImage.Orientation] = [
-+            visionOrient,
-+            .right,
-+            .left,
-+            .up,
-+            .down,
-+        ]
-+
-+        var seen = Set<Int>()
-+        for orient in tryOrientations {
-+            let key = orient.rawValue
-+            if seen.contains(key) { continue }
-+            seen.insert(key)
-+            guard let image = try? MPImage(sampleBuffer: frame.buffer, orientation: orient) else { continue }
-+            do {
-+                let handResult = try still.detect(image: image)
-+                let out = handsOutput(from: handResult)
-+                if !out.isEmpty {
-+                    return (out, "image-\(key)")
-                 }
+-                }
 -                // MediaPipe iOS returns handedness as [[ResultCategory]] —
 -                // outer index per hand, inner array typically has one entry
 -                // with categoryName "Left" or "Right". empty string if missing.
@@ -424,9 +400,22 @@ index cf537e4..563f371 100644
 -                    label = name
 -                } else {
 -                    label = ""
-+            } catch {
-+                logDetectError("HandLandmarkerStill", error)
++        guard onlyHands, let still = handLandmarkerStill else {
++            return ([], "")
++        }
++
++        let visionOrient = uiOrientation(from: orientationKey.isEmpty ? "landscape-right" : orientationKey)
++        guard let image = try? MPImage(sampleBuffer: frame.buffer, orientation: visionOrient) else {
++            return ([], "")
++        }
++        do {
++            let handResult = try still.detect(image: image)
++            let out = handsOutput(from: handResult)
++            if !out.isEmpty {
++                return (out, "image-\(visionOrient.rawValue)")
 +            }
++        } catch {
++            logDetectError("HandLandmarkerStill", error)
 +        }
 +
 +        return ([], "")

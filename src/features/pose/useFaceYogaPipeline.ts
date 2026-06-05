@@ -213,6 +213,7 @@ export function useFaceYogaPipeline({
           faceBBox: faceBBox ? 'YES' : 'NO',
           overlapScore: mobileResult.overlapScore.toFixed(2),
           feedbackState: mobileResult.feedbackState,
+          motionType: mobileResult.motionType,
           isActive: mobileResult.isActive,
           reps: mobileResult.reps,
         });

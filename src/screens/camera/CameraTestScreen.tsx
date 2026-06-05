@@ -334,20 +334,20 @@ const CameraTestScreen = ({ navigation }: Props) => {
     cameraFacing,
   });
 
+  const handDebugRef = useRef(0);
   useEffect(() => {
     if (!__DEV__ || !isFaceHandExercise) return;
     const hf = exerciseAnalysis.handFrame;
     if (!hf) return;
+    const now = Date.now();
+    if (now - handDebugRef.current < 1200) return;
+    handDebugRef.current = now;
     const first = hf.hands[0];
     console.log('[HAND_DEBUG]', {
       handsCount: hf.hands.length,
       firstHandLandmarks: first?.landmarks?.length ?? 0,
-      sample: first?.landmarks?.[0] ?? null,
-      frameW: hf.frameWidth,
-      frameH: hf.frameHeight,
       handReady: hf.handReady,
       nativeHandCount: hf.nativeHandCount,
-      detectMode: hf.detectMode,
     });
   }, [isFaceHandExercise, exerciseAnalysis.handFrame]);
 
