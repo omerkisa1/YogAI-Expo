@@ -86,6 +86,10 @@ export function useFaceYogaPipeline({
     disappearFrames: 8,
     maxGhostMs: 600,
   });
+  const stableHandDetected = stableHand.detected;
+  const stableHandIsGhost = stableHand.isGhost;
+  const handFrameTimestamp = handFrame?.timestamp;
+  const faceFrameTimestamp = faceFrame?.timestamp;
 
   const [isCalibrating, setIsCalibrating] = useState(false);
 
@@ -244,7 +248,15 @@ export function useFaceYogaPipeline({
         });
       }
     }
-  }, [active, isFaceHand, faceFrame, handFrame, cameraFacing, stableHand]);
+  }, [
+    active,
+    isFaceHand,
+    faceFrameTimestamp,
+    handFrameTimestamp,
+    cameraFacing,
+    stableHandDetected,
+    stableHandIsGhost,
+  ]);
 
   useEffect(() => {
     if (!faceRepResult) {

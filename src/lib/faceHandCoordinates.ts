@@ -219,6 +219,31 @@ export function handNearRegion(
 }
 
 const CHIN_ANCHOR_INDICES = [0, 1, 5, 9, 4, 8, 12];
+const TEMPLE_ANCHOR_INDICES = [0, 1, 4, 5, 8, 9, 12, 16, 20];
+
+export function handNearTempleRegion(
+  handLandmarks: NormalizedPoint[],
+  faceBox: NormalizedFaceBox,
+  proximityRatio = 0.55,
+): boolean {
+  if (handNearRegion(handLandmarks, faceBox, 'temple', proximityRatio)) return true;
+
+  const faceW = getFaceWidthFromBox(faceBox);
+  const maxDist = faceW * proximityRatio;
+  const h = faceBox.maxY - faceBox.minY;
+  const templeBandMinY = faceBox.minY + h * 0.2;
+  const templeBandMaxY = faceBox.minY + h * 0.58;
+  const leftCenter = { x: faceBox.minX - faceW * 0.1, y: faceBox.minY + h * 0.38, z: 0 };
+  const rightCenter = { x: faceBox.maxX + faceW * 0.1, y: faceBox.minY + h * 0.38, z: 0 };
+
+  for (const idx of TEMPLE_ANCHOR_INDICES) {
+    const p = handLandmarks[idx];
+    if (!p) continue;
+    if (p.y < templeBandMinY || p.y > templeBandMaxY) continue;
+    if (distance2D(p, leftCenter) < maxDist || distance2D(p, rightCenter) < maxDist) return true;
+  }
+  return false;
+}
 
 export function handNearChinRegion(
   handLandmarks: NormalizedPoint[],

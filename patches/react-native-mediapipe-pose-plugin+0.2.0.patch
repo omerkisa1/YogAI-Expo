@@ -1,8 +1,8 @@
 diff --git a/node_modules/react-native-mediapipe-pose-plugin/ios/PoseLandmarkerPlugin.swift b/node_modules/react-native-mediapipe-pose-plugin/ios/PoseLandmarkerPlugin.swift
-index cf537e4..b6f0b55 100644
+index cf537e4..75d24d7 100644
 --- a/node_modules/react-native-mediapipe-pose-plugin/ios/PoseLandmarkerPlugin.swift
 +++ b/node_modules/react-native-mediapipe-pose-plugin/ios/PoseLandmarkerPlugin.swift
-@@ -1,258 +1,270 @@
+@@ -1,258 +1,297 @@
 -//
 -//  PoseLandmarkerPlugin.swift
 -//  AIPEER
@@ -96,6 +96,11 @@ index cf537e4..b6f0b55 100644
 +    private var handLandmarkerStill: HandLandmarker?
 +    private var lastTimestampMs: Int = 0
 +    private var detectErrorLogCounter: Int = 0
++    private var lastGoodHands: [[String: Any]] = []
++    private var lastGoodHandsTimeMs: Int = 0
++    private var lastImageDetectMs: Int = 0
++    private let handHoldMaxGapMs = 1500
++    private let imageDetectMinGapMs = 500
  
 -    /// Called once when VisionCamera initializes the plugin.
 -    /// Sets up both landmarkers with GPU acceleration.
@@ -193,13 +198,6 @@ index cf537e4..b6f0b55 100644
 +            } catch {
 +                print("[HandLandmarker] IMAGE failed (\(delegate == .GPU ? "GPU" : "CPU")): \(error)")
 +            }
-+        }
-+    }
-+
-+    private func logDetectError(_ tag: String, _ error: Error) {
-+        detectErrorLogCounter += 1
-+        if detectErrorLogCounter % 60 == 1 {
-+            print("[\(tag)] detect error: \(error)")
          }
 +    }
  
@@ -211,6 +209,18 @@ index cf537e4..b6f0b55 100644
 -        opts.minHandDetectionConfidence = 0.4
 -        opts.minHandPresenceConfidence = 0.4
 -        opts.minTrackingConfidence = 0.4
++    private func logDetectError(_ tag: String, _ error: Error) {
++        detectErrorLogCounter += 1
++        if detectErrorLogCounter % 60 == 1 {
++            print("[\(tag)] detect error: \(error)")
++        }
++    }
+ 
+-        do {
+-            handLandmarker = try HandLandmarker(options: opts)
+-            print("[HandLandmarker] Initialized successfully with GPU delegate")
+-        } catch {
+-            print("[HandLandmarker] Failed to init: \(error)")
 +    private func metaDict(handCount: Int = 0, orientation: String = "", detectMode: String = "") -> [String: Any] {
 +        [
 +            "handReady": handLandmarker != nil || handLandmarkerStill != nil,
@@ -220,12 +230,7 @@ index cf537e4..b6f0b55 100644
 +            "detectMode": detectMode,
 +        ]
 +    }
- 
--        do {
--            handLandmarker = try HandLandmarker(options: opts)
--            print("[HandLandmarker] Initialized successfully with GPU delegate")
--        } catch {
--            print("[HandLandmarker] Failed to init: \(error)")
++
 +    private func uiOrientation(from visionOrientation: String) -> UIImage.Orientation {
 +        switch visionOrientation {
 +        case "portrait":
@@ -270,18 +275,14 @@ index cf537e4..b6f0b55 100644
 +        if let value = arguments["orientation"] as? String { return value }
 +        return ""
 +    }
- 
--        // Wrap the raw CMSampleBuffer in a MediaPipe image.
--        // No orientation hint — the TypeScript layer handles coordinate rotation.
--        guard let image = try? MPImage(sampleBuffer: frame.buffer) else { return nil }
++
 +    private func handsOnly(from arguments: [AnyHashable: Any]?) -> Bool {
 +        guard let arguments else { return false }
 +        if let flag = arguments["handsOnly"] as? Bool { return flag }
 +        if let flag = arguments["handsOnly"] as? NSNumber { return flag.boolValue }
 +        return false
 +    }
- 
--        let timestampMs = Int(frame.timestamp)
++
 +    private func timestampMs(from frame: Frame) -> Int {
 +        var raw = Int(frame.timestamp)
 +        if raw > 1_000_000_000_000_000 {
@@ -295,14 +296,7 @@ index cf537e4..b6f0b55 100644
 +        lastTimestampMs = raw
 +        return raw
 +    }
- 
--        // ── Pose detection ─────────────────────────────────────────────────
--        // Run synchronous pose detection (.video mode).
--        // Returns immediately with results — no delegate callback needed.
--        guard let poseResult = try? landmarker.detect(
--            videoFrame: image,
--            timestampInMilliseconds: timestampMs
--        ) else { return nil }
++
 +    private func handsOutput(from handResult: HandLandmarkerResult) -> [[String: Any]] {
 +        var handsOutput: [[String: Any]] = []
 +        let handednessLabels = handResult.handedness
@@ -331,9 +325,9 @@ index cf537e4..b6f0b55 100644
 +        return handsOutput
 +    }
  
--        // Extract the first (and only) person's landmarks.
--        // result.landmarks is [[NormalizedLandmark]] — one array per detected person.
--        guard let poseLandmarks = poseResult.landmarks.first else { return nil }
+-        // Wrap the raw CMSampleBuffer in a MediaPipe image.
+-        // No orientation hint — the TypeScript layer handles coordinate rotation.
+-        guard let image = try? MPImage(sampleBuffer: frame.buffer) else { return nil }
 +    private func detectHands(
 +        frame: Frame,
 +        timestampMs: Int,
@@ -341,6 +335,37 @@ index cf537e4..b6f0b55 100644
 +        onlyHands: Bool
 +    ) -> (hands: [[String: Any]], mode: String) {
 +        guard handLandmarker != nil || handLandmarkerStill != nil else {
++            return ([], "")
++        }
+ 
+-        let timestampMs = Int(frame.timestamp)
++        if let handLm = handLandmarker,
++           let image = try? MPImage(sampleBuffer: frame.buffer),
++           let handResult = try? handLm.detect(videoFrame: image, timestampInMilliseconds: timestampMs) {
++            let out = handsOutput(from: handResult)
++            if !out.isEmpty {
++                lastGoodHands = out
++                lastGoodHandsTimeMs = timestampMs
++                return (out, "video")
++            }
++        }
+ 
+-        // ── Pose detection ─────────────────────────────────────────────────
+-        // Run synchronous pose detection (.video mode).
+-        // Returns immediately with results — no delegate callback needed.
+-        guard let poseResult = try? landmarker.detect(
+-            videoFrame: image,
+-            timestampInMilliseconds: timestampMs
+-        ) else { return nil }
++        if !lastGoodHands.isEmpty,
++           timestampMs - lastGoodHandsTimeMs <= handHoldMaxGapMs {
++            return (lastGoodHands, "held")
++        }
+ 
+-        // Extract the first (and only) person's landmarks.
+-        // result.landmarks is [[NormalizedLandmark]] — one array per detected person.
+-        guard let poseLandmarks = poseResult.landmarks.first else { return nil }
++        guard onlyHands, let still = handLandmarkerStill else {
 +            return ([], "")
 +        }
  
@@ -355,14 +380,12 @@ index cf537e4..b6f0b55 100644
 -            ]
 -            if let v = lm.visibility {
 -                dict["visibility"] = v.floatValue
-+        if let handLm = handLandmarker,
-+           let image = try? MPImage(sampleBuffer: frame.buffer),
-+           let handResult = try? handLm.detect(videoFrame: image, timestampInMilliseconds: timestampMs) {
-+            let out = handsOutput(from: handResult)
-+            if !out.isEmpty {
-+                return (out, "video")
++        if timestampMs - lastImageDetectMs < imageDetectMinGapMs {
++            if !lastGoodHands.isEmpty {
++                return (lastGoodHands, "image-throttled")
              }
 -            poseOutput.append(dict)
++            return ([], "")
          }
  
 -        // ── Hand detection ─────────────────────────────────────────────────
@@ -400,10 +423,7 @@ index cf537e4..b6f0b55 100644
 -                    label = name
 -                } else {
 -                    label = ""
-+        guard onlyHands, let still = handLandmarkerStill else {
-+            return ([], "")
-+        }
-+
++        lastImageDetectMs = timestampMs
 +        let visionOrient = uiOrientation(from: orientationKey.isEmpty ? "landscape-right" : orientationKey)
 +        guard let image = try? MPImage(sampleBuffer: frame.buffer, orientation: visionOrient) else {
 +            return ([], "")
@@ -412,10 +432,17 @@ index cf537e4..b6f0b55 100644
 +            let handResult = try still.detect(image: image)
 +            let out = handsOutput(from: handResult)
 +            if !out.isEmpty {
++                lastGoodHands = out
++                lastGoodHandsTimeMs = timestampMs
 +                return (out, "image-\(visionOrient.rawValue)")
 +            }
 +        } catch {
 +            logDetectError("HandLandmarkerStill", error)
++        }
++
++        if !lastGoodHands.isEmpty,
++           timestampMs - lastGoodHandsTimeMs <= handHoldMaxGapMs {
++            return (lastGoodHands, "held")
 +        }
 +
 +        return ([], "")

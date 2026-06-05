@@ -7,6 +7,7 @@ import {
   getSweepDisplacement,
   handNearChinRegion,
   handNearRegion,
+  handNearTempleRegion,
   isPointInsideFaceBox,
   isHandFist,
   isHandOpen,
@@ -536,7 +537,11 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
     }
 
     const overlapMargin =
-      config.requiredRegion === 'chin' && motionType === 'hold' ? 0.14 : 0.08;
+      config.requiredRegion === 'chin' && motionType === 'hold'
+        ? 0.14
+        : config.requiredRegion === 'temple' && motionType === 'circular'
+          ? 0.12
+          : 0.08;
     const overlap = isHandOverlappingFace(handLandmarks, faceBox, overlapMargin);
     if (overlap.overlapping) {
       overlapMemoryUntil = now + OVERLAP_MEMORY_MS;
@@ -548,7 +553,9 @@ function createMobileFaceHandCounter(poseId: string, customRepTarget?: number) {
     const regionNear =
       config.requiredRegion === 'chin' && motionType === 'hold'
         ? handNearChinRegion(handLandmarks, faceBox, 0.58)
-        : handNearRegion(handLandmarks, faceBox, config.requiredRegion, 0.4);
+        : config.requiredRegion === 'temple' && motionType === 'circular'
+          ? handNearTempleRegion(handLandmarks, faceBox, 0.55)
+          : handNearRegion(handLandmarks, faceBox, config.requiredRegion, 0.4);
     const handNearFace = overlapOk || regionNear;
     const proximity = overlap.overlapScore;
 

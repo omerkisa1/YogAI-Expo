@@ -16,8 +16,9 @@ import {
 } from './useFaceLandmarker';
 import { handLandmarkerDetectionCallback } from './useHandLandmarker';
 
-const FACE_VISION_FPS = 8;
-const HAND_VISION_FPS = 5;
+const COMBINED_VISION_FPS = 8;
+const HAND_STRIDE = 8;
+const HAND_SLOTS = 5;
 
 export type UseCombinedFaceHandVisionPipelineOptions = {
   active: boolean;
@@ -87,25 +88,26 @@ export function useCombinedFaceHandVisionPipeline({
   const frameProcessor = useFrameProcessor(
     frame => {
       'worklet';
-      runAtTargetFps(FACE_VISION_FPS, () => {
+      runAtTargetFps(COMBINED_VISION_FPS, () => {
         'worklet';
         if (!activeRef.current) return;
+
         runAsync(frame, () => {
           'worklet';
+          if (!activeRef.current) return;
+
           const faces = detectFaces(frame);
           onFacesDetected(faces, {
             timestamp: frame.timestamp,
             width: frame.width,
             height: frame.height,
           });
-        });
-      });
 
-      runAtTargetFps(HAND_VISION_FPS, () => {
-        'worklet';
-        if (!activeRef.current || !enableHandsRef.current) return;
-        runAsync(frame, () => {
-          'worklet';
+          if (!enableHandsRef.current) return;
+
+          const handSlot = Math.abs(Math.floor(frame.timestamp / 125000)) % HAND_STRIDE;
+          if (handSlot >= HAND_SLOTS) return;
+
           const handsFrame = detectHandsInFrame(frame);
           onHandsDetected(
             handsFrame.hands,

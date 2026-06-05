@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { HAND_LANDMARKER_SUPPORTED } from './mediapipeHands';
 
@@ -34,7 +34,18 @@ export interface UseHandLandmarkerReturn {
 
 export { HAND_LANDMARKER_SUPPORTED };
 
+const HAND_FRAME_MIN_MS = 80;
+
 let activeHandCallback: ((frame: HandFrame) => void) | null = null;
+
+function handFrameSignature(frame: HandFrame): string {
+  const hand = frame.hands[0];
+  if (!hand?.landmarks?.length) {
+    return `empty:${frame.nativeHandCount ?? 0}:${frame.detectMode ?? ''}`;
+  }
+  const tip = hand.landmarks[8];
+  return `${hand.landmarks.length}:${tip?.x?.toFixed(3) ?? ''}:${tip?.y?.toFixed(3) ?? ''}:${frame.detectMode ?? ''}`;
+}
 
 export const handLandmarkerDetectionCallback = (frame: HandFrame) => {
   activeHandCallback?.(frame);
@@ -44,12 +55,18 @@ export function useHandLandmarker(): UseHandLandmarkerReturn {
   const [isRunning, setIsRunning] = useState(false);
   const [currentFrame, setCurrentFrame] = useState<HandFrame | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const lastEmitRef = useRef({ ms: 0, signature: '' });
 
   const isLoading = useMemo(() => isRunning && currentFrame == null, [isRunning, currentFrame]);
 
   const handleHandFrame = useCallback(
     (frame: HandFrame) => {
       if (!isRunning) return;
+      const now = Date.now();
+      const signature = handFrameSignature(frame);
+      const last = lastEmitRef.current;
+      if (signature === last.signature && now - last.ms < HAND_FRAME_MIN_MS) return;
+      lastEmitRef.current = { ms: now, signature };
       setCurrentFrame(frame);
     },
     [isRunning],
